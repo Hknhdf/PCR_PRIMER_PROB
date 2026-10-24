@@ -22,11 +22,15 @@ https://github.com/signup adresinden ücretsiz hesap aç (varsa atla).
 
 ## Adım 3 — Bu klasörü GitHub'a gönder
 
-Bu klasörde (dosyaların olduğu yerde) **PowerShell** aç:
+### Kolay yol (önerilen)
 
-> Klasörün içinde boş yere `Shift + Sağ tık` → **"Open PowerShell window here"**
+`GITHUB_A_YUKLE.bat` dosyasına **çift tıkla** → GitHub kullanıcı adını yaz → gerisini yapar.
 
-Aşağıdaki 3 satırı çalıştır (ilk satırda `KULLANICI_ADIN` yazan yeri kendi GitHub kullanıcı adınla değiştir):
+Tarayıcı açılıp GitHub girişi isterse **izin ver**.
+
+### Elle yol
+
+PowerShell aç ve şu 3 satırı çalıştır (`KULLANICI_ADIN` yerine kendi adın):
 
 ```powershell
 git remote add origin https://github.com/KULLANICI_ADIN/PCR_PRIMER_PROB.git
@@ -34,9 +38,8 @@ git branch -M main
 git push -u origin main
 ```
 
-İlk komutta tarayıcı açılıp GitHub girişi isteyebilir → **izin ver**.
-
-> Not: Bu klasörde git deposu ve ilk commit zaten hazır. Sadece yukarıdaki 3 komut gerekli.
+> Not: Bu klasörde git deposu ve commit'ler zaten hazır. Sadece yukarıdaki komutlar gerekli.
+> Depoyu oluştururken **"Add a README file" işaretlenmemeli**, yoksa push reddedilir.
 
 ## Adım 4 — Streamlit Cloud'da yayınla
 
