@@ -8,6 +8,8 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 - **Canlı NCBI erişimi** (Biopython Entrez) — her çalıştırmada güncel diziler
 - **Korunmuşluk analizi** — k-mer ön filtre + global/lokal hizalama, pozisyon bazlı korunmuşluk
 - **TaqMan tasarımı** — SantaLucia nearest-neighbour Tm, dimer/homopolymer kontrolü
+- **Özgüllük filtresi** — tek etken tasarımında diğer katalog virüslerine karşı çapraz reaksiyon elemesi
+- **Prob–primer dimer kontrolü** — ≥6 baz tamamlayıcılık yapan prob adayları elenir
 - **Multiplex panel** — çoklu etken + primerler arası çapraz reaksiyon taraması
 - **Excel raporu** — 7 sayfa: özet, primerler, problar, korunmuşluk, çapraz reaksiyon, protokol, adaylar
 - **Manuel dizi modu** — internet yoksa FASTA/ham dizi ile çalışır

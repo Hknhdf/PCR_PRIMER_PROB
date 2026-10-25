@@ -279,7 +279,8 @@ def design_primers_best(dna_sequence, start_pos, end_pos, target_amplicon_size=1
 
 def design_probe(amplicon_seq, forward_len, reverse_len, target_tm=69.0,
                  conservation=None, min_cons=0.85,
-                 tm_min=None, tm_max=None, gc_min=None, gc_max=None):
+                 tm_min=None, tm_max=None, gc_min=None, gc_max=None,
+                 avoid_sequences=(), avoid_overlap=6):
     """
     TaqMan probu: primerlerin arasinda, 5' ucunda G yok,
     Tm ~69 C, 18-30 nt, homopolymer siniri 4.
@@ -297,7 +298,8 @@ def design_probe(amplicon_seq, forward_len, reverse_len, target_tm=69.0,
     if len(inner) < 18:
         return None
 
-    best = None
+    best_clean = None
+    best_any = None
     for plen in range(18, min(31, len(inner)) + 1):
         for i in range(0, len(inner) - plen + 1):
             probe = inner[i:i + plen]
@@ -320,21 +322,32 @@ def design_probe(amplicon_seq, forward_len, reverse_len, target_tm=69.0,
                     if cons < min_cons:
                         continue
 
+            risky = bool(avoid_sequences) and any(
+                dimer_risk(probe, other, min_overlap=avoid_overlap)[0]
+                for other in avoid_sequences
+            )
+
             score = -abs(tm - target_tm) * 5 - abs(gc - 55.0) * 0.8 - abs(plen - 25) * 0.5
             if conservation is not None:
                 score += cons * 15.0
-            if best is None or score > best["_score"]:
-                best = {
-                    "sequence": probe,
-                    "tm": tm,
-                    "gc": gc,
-                    "length": plen,
-                    "position": inner_start + i + 1,
-                    "conservation": round(cons * 100, 1) if conservation is not None else None,
-                    "_score": score,
-                }
+            entry = {
+                "sequence": probe,
+                "tm": tm,
+                "gc": gc,
+                "length": plen,
+                "position": inner_start + i + 1,
+                "conservation": round(cons * 100, 1) if conservation is not None else None,
+                "dimer_risk": risky,
+                "_score": score,
+            }
+            if best_any is None or score > best_any["_score"]:
+                best_any = entry
+            if not risky and (best_clean is None or score > best_clean["_score"]):
+                best_clean = entry
 
+    best = best_clean or best_any
     if best:
+        best = dict(best)
         best.pop("_score", None)
     return best
 

@@ -178,7 +178,7 @@ def record_sequence(record):
     return seq if seq else None
 
 
-def design_one(seq_str, start, end, amp, cons_info=None, top_n=8):
+def design_one(seq_str, start, end, amp, cons_info=None, top_n=8, avoid_seqs=None):
     """Tek bir hedef bölge için primer+prob tasarımı."""
     conservation = cons_info["conservation"] if cons_info else None
     sets, strict = design_primers_best(
@@ -192,6 +192,7 @@ def design_one(seq_str, start, end, amp, cons_info=None, top_n=8):
         amp_cons = None
         if conservation:
             amp_cons = conservation[offset:offset + candidate["amplicon_size"]]
+        kwargs.setdefault("avoid_sequences", (candidate["forward"], candidate["reverse"]))
         return design_probe(
             candidate["amplicon_seq"],
             candidate["forward_len"],
@@ -200,23 +201,53 @@ def design_one(seq_str, start, end, amp, cons_info=None, top_n=8):
             **kwargs,
         )
 
-    best, probe, relaxed = None, None, False
+    best, probe, relaxed, probe_dimer = None, None, False, False
+    fallback = None
+
+    def _cross_ok(candidate, probe_info):
+        """Aday primer/prob, verilen diger virus dizileriyle eslesiyor mu?"""
+        if not avoid_seqs:
+            return True
+        for oligo in (candidate["forward"], candidate["reverse"], probe_info["sequence"]):
+            rc = revcomp(oligo)
+            for other in avoid_seqs.values():
+                if (
+                    oligo in other or rc in other
+                    or oligo[-15:] in other or rc[-15:] in other
+                ):
+                    return False
+        return True
+
     for candidate in sets:
         found = _probe_for(candidate)
-        if found:
-            best, probe = dict(candidate), found
-            break
+        if not found:
+            continue
+        if fallback is None:
+            fallback = (dict(candidate), found)
+        if found.get("dimer_risk"):
+            continue
+        if not _cross_ok(candidate, found):
+            continue
+        best, probe = dict(candidate), found
+        break
+
+    if best is None and fallback is not None:
+        best, probe = fallback
+        probe_dimer = True
 
     if best is None:
         # AT-zengin bölgelerde (ör. parazit mitokondrisi) prob kriterlerini gevşet
         best = dict(sets[0])
         probe = _probe_for(best, tm_min=60.0, tm_max=75.0, gc_min=25.0, gc_max=70.0)
         relaxed = probe is not None
+        probe_dimer = bool(probe and probe.get("dimer_risk"))
 
     return {
         "best": best,
         "probe": probe,
         "probe_relaxed": relaxed,
+        "probe_dimer": probe_dimer,
+        "cross_risk": bool(avoid_seqs and best and probe and not _cross_ok(best, probe)),
         "candidates": sets,
         "strict": strict,
     }
@@ -349,7 +380,7 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Tasarım Parametreleri")
     target_amplicon = st.slider("Hedef amplikon boyutu (bp)", 100, 300, 150, 10)
-    n_candidates = st.slider("Gösterilecek aday sayısı", 3, 15, 8, 1)
+    n_candidates = st.slider("Gösterilecek aday sayısı", 3, 15, 10, 1)
 
     st.markdown("---")
     st.subheader("Korunmuşluk Analizi")
@@ -362,6 +393,17 @@ with st.sidebar:
         "Minimum korunmuşluk (%)", 70, 100, 85, 1,
         help="Primer bölgesi bu oranın altındaysa aday elenir.",
     ) / 100.0
+
+    st.markdown("---")
+    st.subheader("Özgüllük")
+    use_cross = st.checkbox(
+        "Diğer virüslerle çapraz reaksiyonu önle",
+        value=True,
+        help=(
+            "Tek etken tasarımında diğer katalog virüslerine bağlanabilecek adaylar elenir. "
+            "İlk çalıştırmada birkaç saniye ekler (sonrası önbellek)."
+        ),
+    )
 
     st.markdown("---")
     st.subheader("NCBI Bağlantısı")
@@ -528,10 +570,31 @@ with tab_single:
                                 f"%{cons_info['mean'] * 100:.1f}"
                             )
 
+                avoid_seqs = None
+                if use_cross and info.get("category") == "Virüs":
+                    avoid_seqs = {}
+                    for other_name, other_info in VIRUS_DB.items():
+                        if other_name == virus or other_info.get("category") != "Virüs":
+                            continue
+                        fetched_other = fetch_genome(other_info["genbank_id"])
+                        if fetched_other:
+                            avoid_seqs[other_name] = fetched_other[0]
+                if avoid_seqs:
+                    st.caption(
+                        f"Özgüllük: {len(avoid_seqs)} diğer virüs genomuna karşı çapraz reaksiyon taraması yapıldı."
+                    )
+
                 with st.spinner("Primer ve prob adayları hesaplanıyor..."):
                     result = design_one(
                         seq_str, start, end, target_amplicon,
                         cons_info=cons_info, top_n=n_candidates,
+                        avoid_seqs=avoid_seqs,
+                    )
+
+                if result and result.get("cross_risk"):
+                    st.warning(
+                        "⚠️ Diğer virüslerle çapraz eşleşme riski taşımayan aday bulunamadı; "
+                        "seçilen set için panel sekmesinden ayrıntılı tarama yapın."
                     )
 
                 if result is None:
@@ -588,6 +651,11 @@ with tab_single:
                                 "ℹ️ Bu bölge AT-zengin olduğu için prob Tm/GC hedefleri gevşetildi "
                                 f"(Tm {probe['tm']} °C, GC %{probe['gc']}). Laboratuvarda prob "
                                 "konsantrasyonunu buna göre ayarlayın."
+                            )
+                        if result.get("probe_dimer"):
+                            st.warning(
+                                "⚠️ Prob ile primerler arasında 6+ baz tamamlayıcılık var. "
+                                "Sentez öncesi dimer analizi yapın veya farklı bir aday seçin."
                             )
                     else:
                         st.warning("Bu amplikon için uygun prob bulunamadı (SYBR Green kullanılabilir).")
@@ -842,7 +910,7 @@ with tab_docs:
 | Primer GC | %40–60 |
 | 3' uç | G veya C tercih edilir |
 | Homopolymer | ≥ 6 aynı baz istenmez |
-| Dimer | 5+ baz tamamlayıcılık yüksek risk, 4 baz ceza puanı |
+| Dimer | Primer–primer ≥5, prob–primer ≥6 baz tamamlayıcılık istenmez |
 | Prob | 18–30 nt, Tm 66–73 °C (~69 °C), 5' ucu G değil |
 | Amplikon | 100–300 bp (seçilen hedef ± 35 bp) |
 
@@ -867,6 +935,10 @@ SantaLucia nearest-neighbour modeli (Biopython `MeltingTemp.Tm_NN`), qPCR koşul
   küçük genomlarda (virüs) yalnızca bölge aralığı yeterlidir.
 - AT-zengin bölgelerde (ör. *Leishmania* maxicircle) uygun prob bulunamazsa Tm/GC hedefleri
   otomatik gevşetilir ve arayüzde uyarı gösterilir.
+- Tek etken tasarımında **"Diğer virüslerle çapraz reaksiyonu önle"** açıksa 8 virüs genomu
+  taranır; primer veya probu başka bir virüse bağlanabilecek adaylar elenir.
+- Prob seçiminde primerlerle **≥6 baz** tamamlayıcılık yapan adaylar elenir (dimer riski).
+- *T. gondii* hedefi 529 bp tekrar elementidir (AF146527.1); korunmuşluk 6 diziyle %96,6'dır.
 
 ### Sınırlamalar
 - Bu araç **in silico ön değerlendirme** yapar; klinik validasyon yerine geçmez.

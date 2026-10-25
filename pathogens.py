@@ -335,13 +335,13 @@ PATHOGENS = {
     },
     "Toxoplasma gondii": {
         "category": "Parazit",
-        "segment": "B1 geni (çok kopyalı)",
-        "genbank_id": "AF179871.1",
+        "segment": "529 bp tekrar elementi (RE)",
+        "genbank_id": "AF146527.1",
         "target_region": "",
-        "target_gene": "B1",
+        "target_gene": "repeat region",
         "gene_start": None,
         "gene_end": None,
-        "reference": "B1 gen referansı",
+        "reference": "Homan et al. 2000 · 529 bp RE",
     },
     "Leishmania donovani": {
         "category": "Parazit",
