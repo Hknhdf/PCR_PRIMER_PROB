@@ -339,7 +339,45 @@ with st.sidebar:
 
     st.subheader("Etken Kataloğu")
     st.caption(f"{len(VIRUS_DB)} etken yüklü · Virüs / Bakteri / Parazit")
-    with st.expander("➕ Yeni Etken Ekle"):
+    with st.expander("➕ Yeni Etken / Varyant Ekle"):
+        st.caption(
+            "Katalogdaki etkenler ana sayfadaki **Etken seçin** listesinde hazır gelir. "
+            "Bu form yalnızca yeni etken veya mevcut bir etkenin varyantını eklemek içindir."
+        )
+        TEMPLATE_NONE = "— Yeni etken (elle yaz) —"
+
+        def _prefill_from_template():
+            choice = st.session_state.get("new_template")
+            tpl = VIRUS_DB.get(choice) if choice and choice != TEMPLATE_NONE else None
+            if tpl:
+                st.session_state["new_name"] = choice
+                st.session_state["new_category"] = tpl.get("category", CATEGORY_ORDER[0])
+                st.session_state["new_segment"] = tpl.get("segment", "")
+                st.session_state["new_id"] = tpl.get("genbank_id", "")
+                st.session_state["new_region"] = tpl.get("target_region", "")
+                st.session_state["new_gene"] = tpl.get("target_gene", "")
+                st.session_state["new_gstart"] = tpl.get("gene_start") or 0
+                st.session_state["new_gend"] = tpl.get("gene_end") or 0
+            else:
+                for key in ("new_name", "new_segment", "new_id", "new_region", "new_gene"):
+                    st.session_state[key] = ""
+                st.session_state["new_category"] = CATEGORY_ORDER[0]
+                st.session_state["new_gstart"] = 0
+                st.session_state["new_gend"] = 0
+
+        template = st.selectbox(
+            "Hazır etkenden başla",
+            [TEMPLATE_NONE] + ordered_names(VIRUS_DB),
+            key="new_template",
+            on_change=_prefill_from_template,
+            format_func=lambda n: n if n == TEMPLATE_NONE else display_name(VIRUS_DB, n),
+            help="Listeden bir etken seçin; alanlar otomatik dolar. Sıfırdan yeni etken için ilk seçeneği bırakın.",
+        )
+        if template != TEMPLATE_NONE:
+            st.info(
+                "Bu etken katalogda zaten hazır. Ana sayfadaki **Etken seçin** listesinden doğrudan "
+                "kullanabilirsiniz. Yeni bir varyant eklemek için adı değiştirip diğer alanları düzenleyin."
+            )
         new_name = st.text_input("Etken adı", key="new_name")
         new_category = st.selectbox("Kategori", CATEGORY_ORDER, key="new_category")
         new_segment = st.text_input("Hedef gen / bölge açıklaması", key="new_segment")
@@ -352,8 +390,21 @@ with st.sidebar:
         gc1, gc2 = st.columns(2)
         new_gene_start = gc1.number_input("Gen başlangıcı", min_value=0, value=0, step=1, key="new_gstart")
         new_gene_end = gc2.number_input("Gen bitişi", min_value=0, value=0, step=1, key="new_gend")
+        overwrite = st.checkbox(
+            "Aynı adda kayıt varsa üzerine yaz",
+            value=False,
+            key="new_overwrite",
+            help="Yalnızca mevcut bir kaydı güncellemek istiyorsanız işaretleyin.",
+        )
         if st.button("Etkeni Ekle", width="stretch", key="add_pathogen"):
-            if new_name and new_id:
+            if not (new_name and new_id):
+                st.error("Etken adı ve GenBank ID zorunlu.")
+            elif new_name in VIRUS_DB and not overwrite:
+                st.warning(
+                    f"'{new_name}' katalogda zaten var. Ana sayfadaki **Etken seçin** listesinden "
+                    "kullanabilirsiniz. Yeni varyant için adı değiştirin veya 'üzerine yaz' kutusunu işaretleyin."
+                )
+            else:
                 VIRUS_DB[new_name] = {
                     "category": new_category,
                     "segment": new_segment or "Belirtilmedi",
@@ -366,8 +417,6 @@ with st.sidebar:
                 }
                 st.success(f"{new_name} eklendi.")
                 st.rerun()
-            else:
-                st.error("Etken adı ve GenBank ID zorunlu.")
     st.download_button(
         "⬇️ Kataloğu indir (JSON)",
         data=json.dumps(VIRUS_DB, ensure_ascii=False, indent=1),
@@ -434,6 +483,10 @@ with tab_single:
             ordered_names(VIRUS_DB),
             format_func=lambda n: display_name(VIRUS_DB, n),
             key="single_virus",
+        )
+        st.caption(
+            f"{len(VIRUS_DB)} etken hazır — listeden seçin; aramak için ad yazabilirsiniz. "
+            "Yeni etken/varyant için sol menüdeki **Yeni Etken / Varyant Ekle** formunu kullanın."
         )
         info = VIRUS_DB[virus]
         has_gene = bool(info.get("gene_start") and info.get("gene_end"))

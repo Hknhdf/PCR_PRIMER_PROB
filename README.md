@@ -14,6 +14,7 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 - **Excel raporu** — 7 sayfa: özet, primerler, problar, korunmuşluk, çapraz reaksiyon, protokol, adaylar
 - **Manuel dizi modu** — internet yoksa FASTA/ham dizi ile çalışır
 - **Etken kataloğu** — virüs, bakteri ve parazit; büyük genomlarda hedef gen taraması
+- **Hazır etken şablonu** — yeni etken/varyant formunda listeden seçince alanlar otomatik dolar
 
 ## Hedef etkenler
 

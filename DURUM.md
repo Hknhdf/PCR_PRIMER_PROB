@@ -35,6 +35,7 @@ Streamlit uygulaması. Hazır katalog: **9 virüs, 21 bakteri, 10 parazit**.
 - **Prob–primer dimer filtresi:** prob, primerlerle ≥6 baz tamamlayıcılık yapmayacak şekilde seçilir
 - Varsayılan aday sayısı 10 (3–15 arası ayarlanabilir)
 - Kenar çubuğundan yeni etken ekleme (oturumluk) + kataloğu JSON olarak indirme
+- **Hazır etken şablonu:** “Yeni Etken / Varyant Ekle” formunda listeden etken seçince kategori, GenBank ID, bölge ve gen alanları otomatik dolar
 - Taşınabilir paket: `PCR_PRIMER_PROB_tasinabilir.zip`
 
 ## Son doğrulama (25.10.2026)
