@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from datetime import datetime
@@ -24,6 +25,7 @@ from conservation import (
     window_means,
 )
 from report import build_panel_workbook
+from pathogens import PATHOGENS, CATEGORY_ORDER, CATEGORY_ICON
 
 # --- 1. AYARLAR ---
 st.set_page_config(
@@ -46,68 +48,33 @@ def _ncbi_email() -> str:
 
 Entrez.email = _ncbi_email()
 
-DEFAULT_VIRUS_DATABASE = {
-    "Kırım Kongo Kanamalı Ateşi (CCHFV)": {
-        "segment": "S Segmenti (Nükleokapsid Proteini)",
-        "genbank_id": "NC_005302.1",
-        "target_region": "1100 - 1250 bp",
-        "reference": "WHO & Corman Arbovirus Panel",
-        "database": "NCBI",
-    },
-    "Batı Nil Virüsü (WNV)": {
-        "segment": "Envelope (E) Geni",
-        "genbank_id": "NC_001563.2",
-        "target_region": "1150 - 1280 bp",
-        "reference": "CDC Diagnostic Panel",
-        "database": "NCBI",
-    },
-    "Hantavirüs (Dobrava/Puumala)": {
-        "segment": "S Segmenti (Nükleokapsid)",
-        "genbank_id": "NC_005228.1",
-        "target_region": "450 - 580 bp",
-        "reference": "European RefSeq Validation",
-        "database": "NCBI",
-    },
-    "Dengue Virüsü (DENV 1-4)": {
-        "segment": "3' UTR / Capsid Geni",
-        "genbank_id": "NC_001474.2",
-        "target_region": "150 - 270 bp",
-        "reference": "Lancet Infectious Diseases",
-        "database": "NCBI",
-    },
-    "Chikungunya Virüsü (CHIKV)": {
-        "segment": "nsP1 Geni",
-        "genbank_id": "NC_004162.2",
-        "target_region": "850 - 970 bp",
-        "reference": "PAHO/WHO Arbovirus",
-        "database": "NCBI",
-    },
-    "Zika Virüsü (ZIKV)": {
-        "segment": "Membrane/Envelope Bölgesi",
-        "genbank_id": "NC_012532.1",
-        "target_region": "1020 - 1140 bp",
-        "reference": "CDC Real-Time RT-PCR",
-        "database": "NCBI",
-    },
-    "Ebola Virüsü (EBOV)": {
-        "segment": "NP (Nucleoprotein) Geni",
-        "genbank_id": "NC_002549.1",
-        "target_region": "800 - 920 bp",
-        "reference": "USAMRIID / WHO",
-        "database": "NCBI",
-    },
-    "Marburg Virüsü (MARV)": {
-        "segment": "GP (Glycoprotein) Geni",
-        "genbank_id": "NC_001608.3",
-        "target_region": "1200 - 1320 bp",
-        "reference": "WHO Filovirus",
-        "database": "NCBI",
-    },
-}
-
 if "virus_db" not in st.session_state:
-    st.session_state.virus_db = dict(DEFAULT_VIRUS_DATABASE)
+    st.session_state.virus_db = {name: dict(entry) for name, entry in PATHOGENS.items()}
 VIRUS_DB = st.session_state.virus_db
+
+
+def ordered_names(db):
+    """Etken adlarını kategoriye göre sıralar (Virüs → Bakteri → Parazit)."""
+    names = []
+    for category in CATEGORY_ORDER:
+        names.extend([n for n, v in db.items() if v.get("category", "Virüs") == category])
+    names.extend([n for n in db if n not in names])
+    return names
+
+
+def display_name(db, name):
+    category = db[name].get("category", "Virüs")
+    return f"{CATEGORY_ICON.get(category, '•')} {name}"
+
+
+def conservation_organism(organism, category):
+    """Korunmuşluk araması için organizma adını uygun düzeye indirir.
+    Bakterilerde suş eki (ör. 'NCTC 8325') atılır; virüslerde tam ad korunur."""
+    if not organism:
+        return organism
+    if category == "Bakteri":
+        return " ".join(organism.split()[:2])
+    return organism
 
 
 # --- 2. NCBI FONKSİYONLARI (önbellekli) ---
@@ -122,14 +89,43 @@ def fetch_record(accession: str):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_conservation(accession, seq_str, start, end, organism, n_seqs, keywords=()):
+def fetch_genome(accession: str):
+    """Büyük genomlar için tam dizi (FASTA) + organizma adı (esummary).
+    Dönüş: (sequence_str, organism) veya None."""
+    try:
+        with Entrez.efetch(db="nucleotide", id=accession, rettype="fasta", retmode="text") as handle:
+            record = SeqIO.read(handle, "fasta")
+        seq = str(record.seq).upper()
+    except Exception:
+        return None
+
+    organism = ""
+    try:
+        with Entrez.esummary(db="nucleotide", id=accession, retmode="json") as handle:
+            data = json.loads(handle.read())
+        result = data.get("result", {})
+        uid = (result.get("uids") or [None])[0]
+        if uid and uid in result:
+            organism = result[uid].get("organism", "") or ""
+    except Exception:
+        pass
+    return seq, organism
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_conservation(accession, seq_str, start, end, organism, n_seqs, keywords=(), filter_seq=None):
     """İlgili dizileri çekip pozisyon bazlı korunmuşluk hesaplar."""
+    big_genome = len(seq_str) > 200_000
+    # Büyük genomlarda k-mer filtresi hedef bölge üzerinden yapılır (hafıza/hız).
+    reference_for_filter = filter_seq if filter_seq else seq_str
     subjects = fetch_related_sequences(
         organism,
         exclude_accessions=[accession],
         max_n=int(n_seqs),
-        reference_seq=seq_str,
+        reference_seq=reference_for_filter,
         keywords=tuple(keywords),
+        max_candidates=(int(n_seqs) * 3 if big_genome else None),
+        min_subject_len=(int((end - start) * 0.5) if big_genome else None),
     )
     info = compute_conservation(seq_str, start, end, subjects)
     info["requested"] = int(n_seqs)
@@ -155,9 +151,9 @@ def parse_region(region_text, seq_len):
         start = max(0, int(numbers[0]) - 1)
         end = min(int(numbers[1]), seq_len)
     else:
-        start, end = 0, min(1500, seq_len)
+        start, end = 0, min(seq_len, 30000)
     if end - start < 60:
-        start, end = 0, min(1500, seq_len)
+        start, end = 0, min(seq_len, 30000)
     return start, end
 
 
@@ -171,6 +167,17 @@ def clean_fasta(text):
     return re.sub(r"[^ACGTN]", "", cleaned)
 
 
+def record_sequence(record):
+    """SeqRecord'dan diziyi güvenle çıkarır; tanımsız (CON) dizilerde None döner."""
+    if record is None:
+        return None
+    try:
+        seq = str(record.seq).upper()
+    except Exception:
+        return None
+    return seq if seq else None
+
+
 def design_one(seq_str, start, end, amp, cons_info=None, top_n=8):
     """Tek bir hedef bölge için primer+prob tasarımı."""
     conservation = cons_info["conservation"] if cons_info else None
@@ -180,18 +187,39 @@ def design_one(seq_str, start, end, amp, cons_info=None, top_n=8):
     if not sets:
         return None
 
-    best = dict(sets[0])
-    offset = max(0, best["forward_start"] - start - 1)
-    amp_cons = None
-    if conservation:
-        amp_cons = conservation[offset:offset + best["amplicon_size"]]
-    probe = design_probe(
-        best["amplicon_seq"],
-        best["forward_len"],
-        best["reverse_len"],
-        conservation=amp_cons,
-    )
-    return {"best": best, "probe": probe, "candidates": sets, "strict": strict}
+    def _probe_for(candidate, **kwargs):
+        offset = max(0, candidate["forward_start"] - start - 1)
+        amp_cons = None
+        if conservation:
+            amp_cons = conservation[offset:offset + candidate["amplicon_size"]]
+        return design_probe(
+            candidate["amplicon_seq"],
+            candidate["forward_len"],
+            candidate["reverse_len"],
+            conservation=amp_cons,
+            **kwargs,
+        )
+
+    best, probe, relaxed = None, None, False
+    for candidate in sets:
+        found = _probe_for(candidate)
+        if found:
+            best, probe = dict(candidate), found
+            break
+
+    if best is None:
+        # AT-zengin bölgelerde (ör. parazit mitokondrisi) prob kriterlerini gevşet
+        best = dict(sets[0])
+        probe = _probe_for(best, tm_min=60.0, tm_max=75.0, gc_min=25.0, gc_max=70.0)
+        relaxed = probe is not None
+
+    return {
+        "best": best,
+        "probe": probe,
+        "probe_relaxed": relaxed,
+        "candidates": sets,
+        "strict": strict,
+    }
 
 
 def cross_reactivity(results, sequences):
@@ -278,25 +306,45 @@ def candidate_table(candidates):
 with st.sidebar:
     st.header("⚙️ Ayarlar")
 
-    st.subheader("Virüs Veritabanı")
-    with st.expander("➕ Yeni Virüs Ekle"):
-        new_name = st.text_input("Virüs Adı")
-        new_segment = st.text_input("Hedef Segment")
-        new_id = st.text_input("NCBI GenBank ID")
-        new_region = st.text_input("Hedef Bölge (örn: 1000-1200)")
-        if st.button("Virüsü Ekle", width="stretch"):
+    st.subheader("Etken Kataloğu")
+    st.caption(f"{len(VIRUS_DB)} etken yüklü · Virüs / Bakteri / Parazit")
+    with st.expander("➕ Yeni Etken Ekle"):
+        new_name = st.text_input("Etken adı", key="new_name")
+        new_category = st.selectbox("Kategori", CATEGORY_ORDER, key="new_category")
+        new_segment = st.text_input("Hedef gen / bölge açıklaması", key="new_segment")
+        new_id = st.text_input("NCBI GenBank ID", key="new_id")
+        new_region = st.text_input("Hedef bölge (örn: 1000-1200)", key="new_region")
+        new_gene = st.text_input(
+            "Hedef gen adı (opsiyonel)", key="new_gene",
+            help="Büyük genomlarda (bakteri/parazit) gen adı + koordinat verin.",
+        )
+        gc1, gc2 = st.columns(2)
+        new_gene_start = gc1.number_input("Gen başlangıcı", min_value=0, value=0, step=1, key="new_gstart")
+        new_gene_end = gc2.number_input("Gen bitişi", min_value=0, value=0, step=1, key="new_gend")
+        if st.button("Etkeni Ekle", width="stretch", key="add_pathogen"):
             if new_name and new_id:
                 VIRUS_DB[new_name] = {
+                    "category": new_category,
                     "segment": new_segment or "Belirtilmedi",
                     "genbank_id": new_id,
                     "target_region": new_region or "",
+                    "target_gene": new_gene.strip(),
+                    "gene_start": int(new_gene_start) or None,
+                    "gene_end": int(new_gene_end) or None,
                     "reference": "Kullanıcı tanımlı",
-                    "database": "Custom",
                 }
                 st.success(f"{new_name} eklendi.")
                 st.rerun()
             else:
-                st.error("Virüs adı ve GenBank ID zorunlu.")
+                st.error("Etken adı ve GenBank ID zorunlu.")
+    st.download_button(
+        "⬇️ Kataloğu indir (JSON)",
+        data=json.dumps(VIRUS_DB, ensure_ascii=False, indent=1),
+        file_name="etken_katalogu.json",
+        mime="application/json",
+        key="catalog_json",
+    )
+    st.caption("Kenar çubuğundan eklenenler oturum boyunca kalır; kalıcı olması için `pathogens.py` dosyasına ekleyin.")
 
     st.markdown("---")
     st.subheader("Tasarım Parametreleri")
@@ -326,7 +374,8 @@ with st.sidebar:
 st.title("🧬 Real-Time PCR Primer & Prob Tasarım Motoru")
 st.markdown(
     "NCBI GenBank'tan canlı dizi çekme, **çoklu hizalama ile korunmuş bölge tespiti**, "
-    "TaqMan primer/prob tasarımı ve **multiplex panel** raporlaması."
+    "TaqMan primer/prob tasarımı ve **multiplex panel** raporlaması.  \n"
+    "Katalogda **9 virüs, 21 bakteri ve 10 parazit** hazır gelir; kenar çubuğundan yeni etken ekleyebilirsiniz."
 )
 
 tab_single, tab_panel, tab_docs = st.tabs(
@@ -338,17 +387,29 @@ with tab_single:
     if not VIRUS_DB:
         st.warning("Veritabanı boş. Kenar çubuğundan virüs ekleyin.")
     else:
-        virus = st.selectbox("Etken seçin", list(VIRUS_DB.keys()), key="single_virus")
+        virus = st.selectbox(
+            "Etken seçin",
+            ordered_names(VIRUS_DB),
+            format_func=lambda n: display_name(VIRUS_DB, n),
+            key="single_virus",
+        )
         info = VIRUS_DB[virus]
+        has_gene = bool(info.get("gene_start") and info.get("gene_end"))
+        target_label = (
+            f"{info['gene_start']}-{info['gene_end']} (gen: {info.get('target_gene', '')})"
+            if has_gene
+            else (info["target_region"] or "tüm dizi")
+        )
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Hedef Segment", info["segment"])
-        c2.metric("GenBank ID", info["genbank_id"])
-        c3.metric("Önerilen Bölge", info["target_region"] or "—")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Kategori", info.get("category", "—"))
+        c2.metric("Hedef", info["segment"])
+        c3.metric("GenBank ID", info["genbank_id"])
+        c4.metric("Taranacak bölge", target_label)
 
         st.info(
             f"**Referans:** {info.get('reference', '—')}  \n"
-            f"**Bölge:** {info['target_region'] or 'belirtilmedi (tüm dizi taranır)'}  \n"
+            f"**Hedef:** {target_label}  \n"
             f"**Ampikon hedefi:** {target_amplicon} bp"
         )
 
@@ -391,24 +452,44 @@ with tab_single:
                     region_text = manual_region.strip() or "tüm dizi"
                     reference = "Kullanıcı girdisi"
                 else:
-                    record = fetch_record(info["genbank_id"])
-                    if record is None:
-                        st.error(
-                            "❌ NCBI'dan dizi alınamadı. Bağlantıyı kontrol edin veya "
-                            "'Manuel dizi / FASTA' moduna geçin."
-                        )
-                        st.stop()
-                    seq_str = str(record.seq).upper()
                     accession = info["genbank_id"]
-                    organism = record.annotations.get("organism", "")
-                    region_text = info["target_region"] or "tüm dizi"
                     reference = info.get("reference", "")
+                    if has_gene:
+                        fetched = fetch_genome(accession)
+                        if fetched is None:
+                            st.error(
+                                "❌ NCBI'dan genom alınamadı. Bağlantıyı kontrol edin veya "
+                                "'Manuel dizi / FASTA' moduna geçin."
+                            )
+                            st.stop()
+                        seq_str, organism = fetched
+                        region_text = f"{info['gene_start']}-{info['gene_end']}"
+                        record = None
+                    else:
+                        record = fetch_record(accession)
+                        seq_str = record_sequence(record)
+                        if seq_str is None:
+                            fetched = fetch_genome(accession)
+                            if fetched is None:
+                                st.error(
+                                    "❌ NCBI'dan dizi alınamadı. Bağlantıyı kontrol edin veya "
+                                    "'Manuel dizi / FASTA' moduna geçin."
+                                )
+                                st.stop()
+                            seq_str, organism = fetched
+                        else:
+                            organism = record.annotations.get("organism", "")
+                        region_text = info["target_region"] or "tüm dizi"
 
                 start, end = parse_region(region_text if region_text != "tüm dizi" else "", len(seq_str))
+                if not source.startswith("Manuel") and has_gene:
+                    start = max(0, int(info["gene_start"]) - 1)
+                    end = min(len(seq_str), int(info["gene_end"]))
+                big_genome = len(seq_str) > 200_000
                 keywords = ()
-                if source.startswith("Manuel"):
-                    keywords = ()
-                else:
+                if info.get("target_gene"):
+                    keywords = (info["target_gene"],)
+                elif not source.startswith("Manuel") and record is not None:
                     try:
                         keywords = tuple(region_keywords(record, start, end))
                     except Exception:
@@ -424,9 +505,17 @@ with tab_single:
                     if not organism:
                         st.warning("⚠️ Organizma adı olmadan korunmuşluk analizi yapılamaz; atlandı.")
                     else:
-                        with st.spinner(f"İlgili diziler çekiliyor ve hizalanıyor ({n_seqs} dizi)..."):
+                        n_eff = min(n_seqs, 4) if big_genome else n_seqs
+                        if big_genome and n_eff != n_seqs:
+                            st.info(
+                                f"ℹ️ Büyük genom: korunmuşluk için dizi sayısı {n_eff} ile sınırlandı."
+                            )
+                        with st.spinner(f"İlgili diziler çekiliyor ve hizalanıyor ({n_eff} dizi)..."):
                             cons_info = get_conservation(
-                                accession, seq_str, start, end, organism, n_seqs, keywords
+                                accession, seq_str, start, end,
+                                conservation_organism(organism, info.get("category", "Virüs")),
+                                n_eff, keywords,
+                                filter_seq=seq_str[start:end] if big_genome else None,
                             )
                         if cons_info["n_used"] == 0:
                             st.warning(
@@ -494,6 +583,12 @@ with tab_single:
                             f"pozisyon {probe['position']}"
                         )
                         st.caption("Önerilen etiket: [FAM] … [BHQ1]")
+                        if result.get("probe_relaxed"):
+                            st.warning(
+                                "ℹ️ Bu bölge AT-zengin olduğu için prob Tm/GC hedefleri gevşetildi "
+                                f"(Tm {probe['tm']} °C, GC %{probe['gc']}). Laboratuvarda prob "
+                                "konsantrasyonunu buna göre ayarlayın."
+                            )
                     else:
                         st.warning("Bu amplikon için uygun prob bulunamadı (SYBR Green kullanılabilir).")
 
@@ -565,8 +660,9 @@ with tab_panel:
 
     selected = st.multiselect(
         "Panele eklenecek etkenler",
-        list(VIRUS_DB.keys()),
-        default=list(VIRUS_DB.keys())[:3],
+        ordered_names(VIRUS_DB),
+        default=ordered_names(VIRUS_DB)[:3],
+        format_func=lambda n: display_name(VIRUS_DB, n),
     )
     st.caption(
         f"Amplikon hedefi: {target_amplicon} bp · Korunmuşluk analizi: "
@@ -590,27 +686,53 @@ with tab_panel:
         for idx, virus in enumerate(selected, start=1):
             progress.progress((idx - 1) / len(selected), text=f"{virus} işleniyor...")
             info = VIRUS_DB[virus]
-            record = fetch_record(info["genbank_id"])
-            if record is None:
-                failed.append((virus, "NCBI'dan dizi alınamadı"))
-                continue
-            seq_str = str(record.seq).upper()
+            has_gene = bool(info.get("gene_start") and info.get("gene_end"))
+            if has_gene:
+                fetched = fetch_genome(info["genbank_id"])
+                if fetched is None:
+                    failed.append((virus, "NCBI'dan genom alınamadı"))
+                    continue
+                seq_str, organism = fetched
+                record = None
+                start = max(0, int(info["gene_start"]) - 1)
+                end = min(len(seq_str), int(info["gene_end"]))
+                region_label = f"{start + 1}-{end}"
+            else:
+                record = fetch_record(info["genbank_id"])
+                seq_str = record_sequence(record)
+                if seq_str is None:
+                    fetched = fetch_genome(info["genbank_id"])
+                    if fetched is None:
+                        failed.append((virus, "NCBI'dan dizi alınamadı"))
+                        continue
+                    seq_str, organism = fetched
+                else:
+                    organism = record.annotations.get("organism", "")
+                start, end = parse_region(info["target_region"], len(seq_str))
+                region_label = f"{start + 1}-{end}"
+
             sequences[virus] = seq_str
-            start, end = parse_region(info["target_region"], len(seq_str))
 
             cons_info = None
-            if use_cons:
-                organism = record.annotations.get("organism", "")
-                if organism:
+            if use_cons and organism:
+                big = len(seq_str) > 200_000
+                n_eff = min(n_seqs, 4) if big else n_seqs
+                keywords = ()
+                if info.get("target_gene"):
+                    keywords = (info["target_gene"],)
+                elif record is not None:
                     try:
                         keywords = tuple(region_keywords(record, start, end))
                     except Exception:
                         keywords = ()
-                    cons_info = get_conservation(
-                        info["genbank_id"], seq_str, start, end, organism, n_seqs, keywords
-                    )
-                    if cons_info["n_used"] == 0:
-                        cons_info = None
+                cons_info = get_conservation(
+                    info["genbank_id"], seq_str, start, end,
+                    conservation_organism(organism, info.get("category", "Virüs")),
+                    n_eff, keywords,
+                    filter_seq=seq_str[start:end] if big else None,
+                )
+                if cons_info["n_used"] == 0:
+                    cons_info = None
 
             result = design_one(
                 seq_str, start, end, target_amplicon, cons_info=cons_info, top_n=n_candidates
@@ -735,6 +857,16 @@ SantaLucia nearest-neighbour modeli (Biopython `MeltingTemp.Tm_NN`), qPCR koşul
 4. Hizalama blokları referans koordinatlarına iz düşürülür; her pozisyon için
    "aynı bazda olan dizi oranı" hesaplanır.
 5. Primer bölgeleri eşiğin (varsayılan %85) altındaysa aday elenir; korunmuşluk skora bonus ekler.
+
+### Etken kataloğu ve gen hedefleme
+- Katalogda virüsler (CCHFV, WNV, Hantavirüs, Dengue, Chikungunya, Zika, Ebola, Marburg, Aigai),
+  bakteriler ve parazitler hazır gelir.
+- Bakteri/parazit genomları çok büyük olduğu için tüm genom taranmaz: katalogda tanımlı
+  **hedef gen koordinatları** (ör. *S. aureus* `nuc`, *M. tuberculosis* `IS6110`) taranır.
+- Yeni etken eklerken büyük genomlar için **gen adı + başlangıç/bitiş koordinatı** girin;
+  küçük genomlarda (virüs) yalnızca bölge aralığı yeterlidir.
+- AT-zengin bölgelerde (ör. *Leishmania* maxicircle) uygun prob bulunamazsa Tm/GC hedefleri
+  otomatik gevşetilir ve arayüzde uyarı gösterilir.
 
 ### Sınırlamalar
 - Bu araç **in silico ön değerlendirme** yapar; klinik validasyon yerine geçmez.

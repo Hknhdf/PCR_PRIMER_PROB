@@ -278,12 +278,18 @@ def design_primers_best(dna_sequence, start_pos, end_pos, target_amplicon_size=1
 
 
 def design_probe(amplicon_seq, forward_len, reverse_len, target_tm=69.0,
-                 conservation=None, min_cons=0.85):
+                 conservation=None, min_cons=0.85,
+                 tm_min=None, tm_max=None, gc_min=None, gc_max=None):
     """
     TaqMan probu: primerlerin arasinda, 5' ucunda G yok,
     Tm ~69 C, 18-30 nt, homopolymer siniri 4.
     conservation verilirse amplikon koordinatlariyla eslesen dizi beklenir.
+    tm_min/tm_max/gc_min/gc_max: AT-zengin bolgeler icin gevsetilebilir.
     """
+    tm_lo = PROBE_TM_MIN if tm_min is None else float(tm_min)
+    tm_hi = PROBE_TM_MAX if tm_max is None else float(tm_max)
+    gc_lo = PROBE_GC_MIN if gc_min is None else float(gc_min)
+    gc_hi = PROBE_GC_MAX if gc_max is None else float(gc_max)
     amplicon = str(amplicon_seq).upper()
     inner_start = forward_len
     inner_end = len(amplicon) - reverse_len
@@ -300,9 +306,9 @@ def design_probe(amplicon_seq, forward_len, reverse_len, target_tm=69.0,
             tm, gc = calculate_tm(probe), calculate_gc_content(probe)
             if tm is None or gc is None:
                 continue
-            if not (PROBE_TM_MIN <= tm <= PROBE_TM_MAX):
+            if not (tm_lo <= tm <= tm_hi):
                 continue
-            if not (PROBE_GC_MIN <= gc <= PROBE_GC_MAX):
+            if not (gc_lo <= gc <= gc_hi):
                 continue
 
             cons = 1.0

@@ -1,21 +1,20 @@
 # PROJE DURUMU — kaldığım yerden devam
 
-Son güncelleme: 24.10.2026
+Son güncelleme: 25.10.2026
 
 ## Proje nedir
 
-CCHFV, Batı Nil, Hantavirüs, Dengue, Chikungunya, Zika, Ebola ve Marburg için
-NCBI'dan canlı dizi çekip TaqMan primer/prob tasarlayan Streamlit uygulaması.
+Virüs, bakteri ve parazitler için NCBI'dan canlı dizi çekip TaqMan primer/prob tasarlayan
+Streamlit uygulaması. Hazır katalog: **9 virüs, 21 bakteri, 10 parazit**.
 
 ## Şu an nerede
 
 | Konu | Durum |
 |---|---|
-| Kod | `C:\Users\Hakan Hedef\Desktop\PCR_PRIMER_PROB` (tüm dosyalar hazır) |
-| Git | `main` dalı, commit `47a2241`, çalışma ağacı temiz |
-| GitHub | **Yüklendi** — `Hknhdf/PCR_PRIMER_PROB` (private), uzak `main` = yerel `main` |
-| Streamlit Cloud | **Yarım** — deploy formu açıldı, Deploy'a basılıp basılmadığı belirsiz |
-| Yerel uygulama | Çalışıyordu, `http://localhost:8501` (PC kapanınca durur, sorun değil) |
+| Kod | `C:\Users\Hakan Hedef\Desktop\PCR_PRIMER_PROB` |
+| GitHub | `Hknhdf/PCR_PRIMER_PROB` — `main` dalı |
+| Streamlit Cloud | Yayında — `https://pcr-primer-prob.streamlit.app` |
+| Yerel uygulama | `BASLAT.bat` → `http://localhost:8501` |
 
 ## Tamamlanan özellikler
 
@@ -24,21 +23,20 @@ NCBI'dan canlı dizi çekip TaqMan primer/prob tasarlayan Streamlit uygulaması.
 - Gerçek amplikon mantığı (forward = sense başlangıç, reverse = amplikon sonunun ters komplementi)
 - Katı / gevşek iki kademeli filtre, dimer ve homopolymer kontrolü
 - **Korunmuşluk analizi:** k-mer ön filtre → 24-mer çapa → global/lokal hizalama → pozisyon bazlı oran
-  (CCHFV testinde 8 dizi, ortalama %95,5; primer/prob seçimi buna göre ağırlıklandırılıyor)
 - **Multiplex panel:** çoklu etken, primerler arası çapraz reaksiyon taraması (tam / 3' uç / 5' uç)
 - **Excel raporu:** Özet, Primerler, Problar, Korunmuşluk, Çapraz Reaksiyon, Protokol, Adaylar
 - Manuel FASTA/ham dizi modu (internet yoksa)
+- **Etken kataloğu:** virüs / bakteri / parazit, kategoriye göre gruplu seçim
+  - Bakteri ve parazitlerde tüm genom yerine **hedef gen** taranır (ör. `nuc`, `IS6110`, 18S rRNA)
+  - Büyük genomlarda korunmuşluk için dizi sayısı otomatik sınırlandırılır
+  - AT-zengin bölgelerde prob Tm/GC hedefleri otomatik gevşetilir (uyarı gösterilir)
+- Kenar çubuğundan yeni etken ekleme (oturumluk) + kataloğu JSON olarak indirme
 - Taşınabilir paket: `PCR_PRIMER_PROB_tasinabilir.zip`
 
-## Kalan işler
+## Kalan / isteğe bağlı işler
 
-1. **Streamlit Cloud deploy'unu bitir**
-   - https://share.streamlit.io → New app
-   - Repository: `Hknhdf/PCR_PRIMER_PROB` · Branch: `main` · Main file: `realtime_pcr_designer.py`
-   - Advanced settings → Secrets: `NCBI_EMAIL = "..."` (kendi e-postası)
-   - Private depo listede çıkmazsa: **Configure GitHub access** → depoyu seç → authorize
-2. (İsteğe bağlı) **Şifre koruması** — `st.secrets` içinde şifre, giriş ekranı
-3. (İsteğe bağlı) Yeni virüs eklemelerinin kalıcı olması — `DEFAULT_VIRUS_DATABASE` sözlüğüne eklemek
+1. (İsteğe bağlı) **Şifre koruması** — `st.secrets` içinde şifre, giriş ekranı
+2. (İsteğe bağlı) Yeni etkenlerin kalıcı olması — `pathogens.py` içindeki `PATHOGENS` sözlüğüne eklemek
    (kenar çubuğundan eklenenler yalnızca oturum boyunca kalır)
 
 ## Nasıl devam edilir
@@ -56,7 +54,7 @@ NCBI'dan canlı dizi çekip TaqMan primer/prob tasarlayan Streamlit uygulaması.
 ## Önemli notlar
 
 - `Entrez.email` sırası: `st.secrets["NCBI_EMAIL"]` → `NCBI_EMAIL` ortam değişkeni → varsayılan
-- Korunmuşluk analizi NCBI'dan ek istek atar; 8 dizi ≈ 2-5 sn/etken (sonrası önbellek)
+- Virüs korunmuşluğu: 8 dizi ≈ 2-5 sn/etken; bakteri genomları büyük olduğu için ≈ 10 sn
 - Excel çapraz reaksiyon taraması k-mer tabanlıdır, tam hizalama değildir
 - Üretilen setler klinik kullanım öncesi **Primer-BLAST + dimer analizi + LOD/LOQ** ile doğrulanmalı
 - Streamlit Community Cloud ücretsiz; uygulama linki herkese açıktır (kod private olsa bile)

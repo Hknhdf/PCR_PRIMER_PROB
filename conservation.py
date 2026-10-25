@@ -42,14 +42,29 @@ def _kmers(seq, k=KMER_K, step=KMER_STEP):
 
 
 def kmer_similarity(reference: str, subject: str, k=KMER_K, step=KMER_STEP) -> float:
-    """Referansin k-mer'larinin ne kadari subject'te var (0..1)."""
-    if not reference or not subject or len(reference) < k or len(subject) < k:
+    """Referansin k-mer'larinin ne kadari subject'te var (0..1).
+    Buyuk genomlarda set kurmadan tarama yapilir (bellek dostu)."""
+    ref = str(reference or "").upper()
+    sub = str(subject or "").upper()
+    if len(ref) < k or len(sub) < k:
         return 0.0
-    ref_kmers = _kmers(reference, k, step)
+    ref_kmers = _kmers(ref, k, step)
     if not ref_kmers:
         return 0.0
-    sub_kmers = _kmers(subject, k, step)
-    return len(ref_kmers & sub_kmers) / len(ref_kmers)
+    if len(sub) > 3 * len(ref):
+        # Büyük genom: kmer seti kurmak yerine referans kmer'larını genomda ara.
+        # (Adım/frame kayması sorununu önler.)
+        if len(ref_kmers) <= 20_000:
+            hits = sum(1 for km in ref_kmers if sub.find(km) >= 0)
+            return hits / len(ref_kmers)
+        found = set()
+        for frame in range(3):
+            for i in range(frame, len(sub) - k + 1, step):
+                km = sub[i:i + k]
+                if km in ref_kmers:
+                    found.add(km)
+        return len(found) / len(ref_kmers)
+    return len(ref_kmers & _kmers(sub, k, step)) / len(ref_kmers)
 
 
 def region_keywords(record, start, end, limit=3):
@@ -83,71 +98,79 @@ def fetch_related_sequences(
     reference_seq=None,
     min_similarity=MIN_KMER_SIMILARITY,
     keywords=(),
+    max_candidates=None,
+    min_subject_len=None,
 ):
     """
     Ayni organizmaya ait nukleotid kayitlarini ceker, homolog olanlari dondurur.
     keywords: hedef gendeki urun adlari (arama hassasiyetini artirir).
     reference_seq: k-mer benzerligi filtresi icin referans dizi.
+    max_candidates: buyuk genomlarda indirilecek kayit sayisini sinirlar.
     Donus: [(accession, description, sequence_str), ...]
     """
     if not organism:
         return []
 
     excluded = {str(a).upper() for a in exclude_accessions}
+    ref = str(reference_seq).upper() if reference_seq else None
+    cap = int(max_candidates) if max_candidates else max(60, max_n * 6)
+    # Buyuk genomlarda istek basina kayit sayisi kucultulur (yanit boyutu / bellek)
+    chunk_size = 3 if max_candidates else 50
 
-    def _search(term, retmax):
+    def _search(term):
         try:
-            handle = Entrez.esearch(db="nucleotide", term=term, retmax=retmax)
-            found = Entrez.read(handle)
-            handle.close()
+            with Entrez.esearch(db="nucleotide", term=term, retmax=cap) as handle:
+                found = Entrez.read(handle)
             return [int(i) for i in found.get("IdList", [])]
         except Exception:
             return []
 
-    def _fetch(ids):
-        out = []
-        for chunk_start in range(0, len(ids), 50):
-            chunk = ids[chunk_start:chunk_start + 50]
+    def _collect(ids):
+        picked = []
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start:start + chunk_size]
             try:
                 with Entrez.efetch(
                     db="nucleotide", id=",".join(str(i) for i in chunk),
                     rettype="fasta", retmode="text",
                 ) as handle:
-                    for rec in SeqIO.parse(handle, "fasta"):
-                        acc = rec.id.split(".")[0].upper()
-                        if acc in excluded or rec.id.upper() in excluded:
-                            continue
-                        seq = str(rec.seq).upper()
-                        if len(seq) < 60 or set(seq) - set("ACGTN"):
-                            continue
-                        out.append((rec.id, rec.description, seq))
+                    records = list(SeqIO.parse(handle, "fasta"))
             except Exception:
                 continue
-        return out
 
-    def _filter(candidates):
-        if not reference_seq:
-            return candidates[:max_n]
-        ref = str(reference_seq).upper()
-        scored = []
-        for cid, desc, seq in candidates:
-            sim = kmer_similarity(ref, seq)
-            if sim >= min_similarity:
-                scored.append((sim, cid, desc, seq))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [(cid, desc, seq) for _, cid, desc, seq in scored[:max_n]]
+            for rec in records:
+                acc = rec.id.split(".")[0].upper()
+                if acc in excluded:
+                    continue
+                seq = str(rec.seq).upper()
+                if len(seq) < 60 or set(seq) - set("ACGTN"):
+                    continue
+                if min_subject_len and len(seq) < min_subject_len:
+                    continue
+                if ref:
+                    sim = kmer_similarity(ref, seq)
+                    if sim < min_similarity:
+                        continue
+                else:
+                    sim = 1.0
+                picked.append((sim, rec.id, rec.description, seq))
+                if len(picked) >= max_n:
+                    break
+            if len(picked) >= max_n:
+                break
+
+        picked.sort(key=lambda x: x[0], reverse=True)
+        return [(cid, desc, seq) for _, cid, desc, seq in picked[:max_n]]
 
     # 1) Hedef gen anahtar kelimeleriyle ara (daha isabetli)
     if keywords:
         kw_terms = " OR ".join(f'"{k}"' for k in keywords[:3])
-        primary = _search(f'"{organism}"[Organism] AND ({kw_terms})', max(60, max_n * 6))
-        hits = _filter(_fetch(primary))
+        hits = _collect(_search(f'"{organism}"[Organism] AND ({kw_terms})'))
         if hits:
             return hits
 
     # 2) Organizma genelinde ara (yedek)
-    general = _search(f'"{organism}"[Organism]', max(80, max_n * 8))
-    return _filter(_fetch(general))
+    return _collect(_search(f'"{organism}"[Organism]'))
 
 
 def _find_anchor(ref_slice: str, subject: str, k: int = ANCHOR_K):

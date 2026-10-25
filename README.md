@@ -11,11 +11,23 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 - **Multiplex panel** — çoklu etken + primerler arası çapraz reaksiyon taraması
 - **Excel raporu** — 7 sayfa: özet, primerler, problar, korunmuşluk, çapraz reaksiyon, protokol, adaylar
 - **Manuel dizi modu** — internet yoksa FASTA/ham dizi ile çalışır
+- **Etken kataloğu** — virüs, bakteri ve parazit; büyük genomlarda hedef gen taraması
 
 ## Hedef etkenler
 
-CCHFV · Batı Nil · Hantavirüs · Dengue · Chikungunya · Zika · Ebola · Marburg
-(kenar çubuğundan yeni virüs eklenebilir)
+**Virüsler (9):** CCHFV · Batı Nil · Hantavirüs · Dengue · Chikungunya · Zika · Ebola · Marburg · Aigai
+
+**Bakteriler (21):** *M. tuberculosis* · *E. coli* · *S. aureus* · *S. pneumoniae* ·
+*K. pneumoniae* · *Salmonella* · *L. monocytogenes* · *V. cholerae* · *N. meningitidis* ·
+*B. pertussis* · *L. pneumophila* · *H. pylori* · *C. difficile* · *Brucella* ·
+*F. tularensis* · *Y. pestis* · *B. anthracis* · *C. trachomatis* · *M. pneumoniae* ·
+*C. burnetii* · *P. aeruginosa*
+
+**Parazitler (10):** *P. falciparum* · *T. gondii* · *L. donovani* · *T. brucei* · *T. cruzi* ·
+*Giardia* · *E. histolytica* · *C. parvum* · *S. mansoni* · *E. multilocularis*
+
+Kenar çubuğundan yeni etken eklenebilir; kalıcı ekleme için `pathogens.py` içindeki
+`PATHOGENS` sözlüğüne kayıt ekleyin.
 
 ## Yerel çalıştırma
 
