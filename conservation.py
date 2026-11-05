@@ -100,12 +100,15 @@ def fetch_related_sequences(
     keywords=(),
     max_candidates=None,
     min_subject_len=None,
+    country=None,
 ):
     """
     Ayni organizmaya ait nukleotid kayitlarini ceker, homolog olanlari dondurur.
     keywords: hedef gendeki urun adlari (arama hassasiyetini artirir).
     reference_seq: k-mer benzerligi filtresi icin referans dizi.
     max_candidates: buyuk genomlarda indirilecek kayit sayisini sinirlar.
+    country: NCBI ulke filtresi (or. 'Turkey'); ulke metadata'si olmayan kayitlar
+             icin kullanici FASTA yuklemelidir.
     Donus: [(accession, description, sequence_str), ...]
     """
     if not organism:
@@ -116,6 +119,13 @@ def fetch_related_sequences(
     cap = int(max_candidates) if max_candidates else max(60, max_n * 6)
     # Buyuk genomlarda istek basina kayit sayisi kucultulur (yanit boyutu / bellek)
     chunk_size = 3 if max_candidates else 50
+
+    country_term = ""
+    if country:
+        c = str(country).strip().replace('"', "")
+        if c:
+            # Country alani her kayitta dolu olmayabilir; Title da taranir.
+            country_term = f'({c}[Country] OR {c}[Title])'
 
     def _search(term):
         try:
@@ -162,15 +172,19 @@ def fetch_related_sequences(
         picked.sort(key=lambda x: x[0], reverse=True)
         return [(cid, desc, seq) for _, cid, desc, seq in picked[:max_n]]
 
+    base = f'"{organism}"[Organism]'
+    if country_term:
+        base = f"{base} AND {country_term}"
+
     # 1) Hedef gen anahtar kelimeleriyle ara (daha isabetli)
     if keywords:
         kw_terms = " OR ".join(f'"{k}"' for k in keywords[:3])
-        hits = _collect(_search(f'"{organism}"[Organism] AND ({kw_terms})'))
+        hits = _collect(_search(f"{base} AND ({kw_terms})"))
         if hits:
             return hits
 
-    # 2) Organizma genelinde ara (yedek)
-    return _collect(_search(f'"{organism}"[Organism]'))
+    # 2) Organizma (+ ulke) genelinde ara (yedek)
+    return _collect(_search(base))
 
 
 def _find_anchor(ref_slice: str, subject: str, k: int = ANCHOR_K):

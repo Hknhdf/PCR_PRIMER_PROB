@@ -29,6 +29,18 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 - **RPA / LAMP (beta)** — RPA primer/prob ve LAMP F3/B3/FIP/BIP önerileri, LAMP set kontrolü
 - **Panel Optimizer** — assay'ler arası dimer matrisi, uyumluluk matrisi, kanal ataması
 
+### 🛡️ Sipariş Kontrolü (Türkiye suşları + sipariş öncesi QC)
+
+- **Türkiye Suş Kontrolü** — NCBI `Turkey[Country]` araması, yerel FASTA/ham dizi yükleme;
+  primer/prob bağlanma bölgelerinde mismatch, 3' uç mismatch'i, prob mismatch'i ve amplikon
+  varlığını PASS / WARN / FAIL olarak raporlar.
+- **Sipariş Öncesi Kontrol** — termodinamik, özgüllük taraması, Türkiye suşları, Primer-BLAST,
+  sentez/modifikasyon ve ıslak laboratuvar planı tek karar tablosunda birleştirilir.
+  FAIL/BLOCKED varsa sipariş listesi indirilemez; WARN varsa açık onay gerekir.
+- **Türkiye consensus adayı** — Türkiye dizilerinden yeni aday üretir ve adayları tekrar
+  Türkiye dizilerine karşı test eder. Non-dejenere aday tüm dizileri geçmiyorsa "sipariş
+  etmeyin" uyarısı verir.
+
 ## Hedef etkenler
 
 **Virüsler (11):** CCHFV · Batı Nil · Hantavirüs · Dengue · Chikungunya · Zika · Ebola · Marburg · Aigai ·
@@ -72,5 +84,7 @@ NCBI_EMAIL = "ad.soyad@kurum.gov.tr"
 
 Bu araç **in silico ön değerlendirme** içindir. Klinik/laboratuvar kullanımı öncesi
 Primer-BLAST özgüllük kontrolü, dimer analizi ve LOD/LOQ validasyonu zorunludur.
-RPA/LAMP çıktıları **beta**dır; ıslak laboratuvar optimizasyonu olmadan kullanılmamalıdır.
-PDF ve kütüphane çıktıları araştırma amaçlıdır, tıbbi karar desteği değildir.
+Sipariş öncesi **Türkiye Suş Kontrolü** ve **Sipariş Öncesi Kontrol** kapısı çalıştırılmalıdır;
+NCBI'da ülke metadata'sı eksik olabileceği için yerel/Türkiye izolatı FASTA dizileriyle
+kontrolü tamamlayın. RPA/LAMP çıktıları **beta**dır; ıslak laboratuvar optimizasyonu olmadan
+kullanılmamalıdır. PDF ve kütüphane çıktıları araştırma amaçlıdır, tıbbi karar desteği değildir.

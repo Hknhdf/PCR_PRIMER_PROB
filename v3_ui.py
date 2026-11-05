@@ -47,6 +47,16 @@ from panel_opt import (
     panel_summary,
 )
 from specificity import blast_oligo, in_silico_pcr, risk_level, scan_sequences, specificity_score
+from strain_check import (
+    FAIL,
+    build_order_gate,
+    consensus_to_active,
+    evaluate_turkey_strains,
+    fetch_turkey_subjects,
+    order_sheet_rows,
+    parse_fasta_text,
+    turkey_rows,
+)
 from stats_engine import (
     likelihood_ratios,
     lod_loq_analysis,
@@ -863,6 +873,381 @@ def _render_pdf(ctx):
         "PDF araştırma amaçlıdır. Klinik kullanım öncesi Primer-BLAST, dimer analizi, "
         "LOD/LOQ ve ıslak laboratuvar doğrulaması gereklidir."
     )
+
+
+# ---------------------------------------------------------------------------
+# SİPARİŞ KONTROLÜ
+# ---------------------------------------------------------------------------
+
+def _status_text(status):
+    return {
+        "PASS": "✅ PASS",
+        "WARN": "⚠️ WARN",
+        "FAIL": "❌ FAIL",
+        "BLOCKED": "⛔ BLOCKED",
+    }.get(status, str(status))
+
+
+def render_order_tabs(ctx):
+    st.markdown(
+        "Türkiye'de dolaşan suşlara uyumu kontrol edin ve sipariş öncesi son QC "
+        "kapısını çalıştırın. **Bu bölüm in-silico ön kontroldür; ıslak laboratuvar "
+        "validasyonunun yerine geçmez.**"
+    )
+    sub_tr, sub_qc = st.tabs(["🇹🇷 Türkiye Suş Kontrolü", "✅ Sipariş Öncesi Kontrol"])
+    with sub_tr:
+        _render_turkey_strains(ctx)
+    with sub_qc:
+        _render_order_gate(ctx)
+
+
+def _dedupe_subjects(subjects):
+    seen = set()
+    unique = []
+    for item in subjects:
+        seq = str(item.get("seq", "")).upper()
+        if not seq or seq in seen:
+            continue
+        seen.add(seq)
+        unique.append(item)
+    return unique
+
+
+def _render_turkey_strains(ctx):
+    active = ctx["active_or_demo"]("turkey")
+    if not active:
+        return
+    _active_header(active)
+    st.markdown("#### Türkiye suşu uyum kontrolü")
+    st.caption(
+        "NCBI'da **Turkey[Country]** filtresiyle bulunan diziler ve/veya yüklediğiniz "
+        "yerel FASTA dizileri referans amplikona hizalanır. Primer/prob bağlanma "
+        "bölgelerindeki mismatch ve 3' uç riski raporlanır. Ülke metadata'sı olmayan "
+        "kayıtlar NCBI aramasına gelmez; bu durumda FASTA yükleyin."
+    )
+
+    c1, c2, c3 = st.columns(3)
+    n_seq = c1.slider("NCBI Türkiye dizisi", 5, 40, 20, 1, key="tr_n")
+    max_mm = c2.slider("İzin verilen mismatch", 2, 6, 4, 1, key="tr_mm")
+    country = c3.text_input("NCBI ülke filtresi", value="Turkey", key="tr_country",
+                            help="NCBI'da ülke alanı genellikle 'Turkey' olarak geçer.")
+    include_ncbi = st.checkbox(
+        "NCBI'da Turkey[Country] aramasını dahil et", value=True, key="tr_include_ncbi"
+    )
+
+    uploaded = st.file_uploader(
+        "Türkiye suşu FASTA (isteğe bağlı, çoklu kayıt olabilir)",
+        type=["fasta", "fa", "fna", "txt"], key="tr_fasta",
+        help="Kendi dizinizi veya laboratuvarınızın sekansını yükleyin. FASTA başlıkları accession/izolat adı olarak kullanılır.",
+    )
+    manual = st.text_area(
+        "veya FASTA / ham dizi yapıştırın",
+        key="tr_manual", height=130,
+        placeholder=">TR_isolate_1\nACGT...\n>TR_isolate_2\nACGT...",
+    )
+
+    if st.button("🇹🇷 Türkiye dizilerini değerlendir", type="primary",
+                 key="tr_run", width="stretch"):
+        subjects = []
+        if manual.strip():
+            subjects.extend(parse_fasta_text(manual))
+        if uploaded is not None:
+            try:
+                subjects.extend(parse_fasta_text(uploaded.getvalue().decode("utf-8", errors="replace")))
+            except Exception as exc:
+                st.warning(f"Yüklenen FASTA okunamadı: {exc}")
+        if include_ncbi:
+            organism = active.get("organism") or ""
+            if not organism:
+                st.warning("Organizma adı yok; NCBI araması atlandı. Manuel FASTA kullanabilirsiniz.")
+            else:
+                ref_amp = active["ref_seq"][active["amplicon_start"]:active["amplicon_end"]]
+                keywords = ()
+                if active.get("info", {}).get("target_gene"):
+                    keywords = (active["info"]["target_gene"],)
+                with st.spinner("NCBI'da Türkiye dizileri aranıyor..."):
+                    try:
+                        ncbi_subjects = fetch_turkey_subjects(
+                            organism, ref_amp, n=n_seq, keywords=keywords,
+                            accession=active.get("accession", ""), country=country,
+                        )
+                    except Exception as exc:
+                        ncbi_subjects = []
+                        st.warning(f"NCBI araması başarısız: {exc}")
+                if not ncbi_subjects:
+                    st.warning(
+                        "NCBI'da bu organizma + ülke filtresiyle dizi bulunamadı. "
+                        "Ülke metadata'sı eksik olabilir; yerel FASTA yükleyin."
+                    )
+                subjects.extend(ncbi_subjects)
+        subjects = _dedupe_subjects(subjects)
+        if not subjects:
+            st.error("Değerlendirilecek dizi yok. NCBI aramasını açın veya FASTA yükleyin.")
+        else:
+            with st.spinner("Türkiye dizileri referans amplikona hizalanıyor..."):
+                result = evaluate_turkey_strains(active, subjects, max_mismatches=max_mm)
+            st.session_state["last_turkey"] = result
+            st.session_state["last_turkey_subjects"] = subjects
+            st.session_state["last_turkey_consensus"] = None
+
+    result = st.session_state.get("last_turkey")
+    if not result:
+        st.info("Henüz Türkiye suşu kontrolü çalıştırılmadı.")
+        return
+    if result.get("error"):
+        st.error(result["error"])
+        return
+
+    m = st.columns(5)
+    m[0].metric("Değerlendirilen", result.get("n_total", 0))
+    m[1].metric("PASS", result.get("n_pass", 0))
+    m[2].metric("WARN", result.get("n_warn", 0))
+    m[3].metric("FAIL", result.get("n_fail", 0))
+    m[4].metric("3' uç riski", result.get("n_three_prime_risk", 0))
+
+    if result.get("overall") == "PASS":
+        st.success("✅ Tüm değerlendirilen Türkiye dizileri primer/prob setiyle uyumlu.")
+    elif result.get("overall") == "WARN":
+        st.warning("⚠️ Bazı dizilerde mismatch/kısmi eşleşme var; sipariş öncesi inceleyin.")
+    else:
+        st.error("❌ En az bir Türkiye dizisinde kritik uyumsuzluk var; sipariş vermeyin.")
+
+    st.dataframe(pd.DataFrame(turkey_rows(result)), width="stretch", hide_index=True)
+    st.caption(
+        "PASS = tam eşleşme; WARN = 1–2 mismatch veya kısmi eşleşme; "
+        "FAIL = 3' uç mismatch, ≥3 primer mismatch veya ≥2 prob mismatch."
+    )
+
+    if result.get("coverage"):
+        st.markdown("#### Primer / prob kapsaması")
+        st.dataframe(_coverage_rows(result), width="stretch", hide_index=True)
+
+    subjects = st.session_state.get("last_turkey_subjects") or []
+    if subjects:
+        st.markdown("#### Türkiye dizileriyle yeni aday tasarımı")
+        st.caption(
+            "Mevcut set Türkiye dizilerinde FAIL/WARN veriyorsa, bu dizilerin majority/consensus "
+            "dizisinden yeni primer-prob adayları üretilebilir. Adaylar **in-silico**dir; "
+            "sentez öncesi Primer-BLAST ve ıslak laboratuvar doğrulaması gerekir."
+        )
+        cc1, cc2, cc3 = st.columns(3)
+        tr_cov = cc1.slider("Minimum Türkiye kapsaması (%)", 50, 100, 80, 5, key="tr_cons_cov") / 100.0
+        tr_deg = cc2.selectbox("Maksimum dejenere kat sayısı", [64, 256, 1024], index=1, key="tr_cons_deg")
+        tr_region = cc3.selectbox(
+            "Tasarım bölgesi",
+            ["Aktif amplikon", "Tüm referans dizisi"],
+            key="tr_cons_region",
+            help="Aktif amplikon dışında daha korunmuş bir bölge aramak için tüm referansı deneyin.",
+        )
+        if st.button("🇹🇷 Türkiye uyumlu adayları üret", key="tr_cons_run", width="stretch"):
+            if tr_region == "Aktif amplikon":
+                region_start = int(active["amplicon_start"])
+                region_end = int(active["amplicon_end"])
+            else:
+                region_start, region_end = 0, len(active["ref_seq"])
+            ref_region = active["ref_seq"][region_start:region_end]
+            with st.spinner("Türkiye dizilerinden consensus adaylar hesaplanıyor..."):
+                cons = design_consensus_primers(
+                    ref_region, subjects, region_start=0,
+                    target_amp=int(active.get("amplicon_size") or 150),
+                    top_n=20, min_coverage=tr_cov, max_degeneracy=int(tr_deg),
+                )
+            if cons.get("ok") and cons.get("candidates"):
+                base = dict(active)
+                base["amplicon_start"] = region_start
+                base["amplicon_end"] = region_end
+                evaluated = []
+                for c in cons["candidates"]:
+                    try:
+                        cand_active = consensus_to_active(base, c)
+                        tr = evaluate_turkey_strains(cand_active, subjects, max_mismatches=max_mm)
+                        c = dict(c)
+                        c["turkey_status"] = tr.get("overall", FAIL)
+                        c["turkey_pass"] = tr.get("n_pass", 0)
+                        c["turkey_warn"] = tr.get("n_warn", 0)
+                        c["turkey_fail"] = tr.get("n_fail", 0)
+                        c["turkey_three"] = tr.get("n_three_prime_risk", 0)
+                        evaluated.append(c)
+                    except Exception:
+                        continue
+                cons["evaluated_candidates"] = evaluated
+                cons["region_start"] = region_start
+                cons["region_end"] = region_end
+            st.session_state["last_turkey_consensus"] = cons
+
+        cons = st.session_state.get("last_turkey_consensus")
+        if cons:
+            if not cons.get("ok"):
+                st.error(cons.get("message") or "Consensus adayı üretilemedi.")
+            elif not cons.get("candidates"):
+                st.warning("Bu kapsama/dejenerasyon eşiğinde aday bulunamadı.")
+            else:
+                evaluated = cons.get("evaluated_candidates") or []
+                candidate_rows = [{
+                    "F primer": c["forward"],
+                    "R primer": c["reverse"],
+                    "Prob": c["probe"],
+                    "F kapsama (%)": c["coverage_f"],
+                    "R kapsama (%)": c["coverage_r"],
+                    "P kapsama (%)": c["coverage_p"],
+                    "Boyut (bp)": c["amplicon_size"],
+                    "F Tm": c["forward_tm"],
+                    "R Tm": c["reverse_tm"],
+                    "P Tm": c["probe_tm"],
+                    "Türkiye": _status_text(c.get("turkey_status", FAIL)),
+                    "TR PASS/WARN/FAIL": f"{c.get('turkey_pass', 0)}/{c.get('turkey_warn', 0)}/{c.get('turkey_fail', 0)}",
+                    "Dejenerasyon F/R/P": f"{c['forward_deg']}/{c['reverse_deg']}/{c['probe_deg']}",
+                } for c in evaluated]
+                if candidate_rows:
+                    st.dataframe(pd.DataFrame(candidate_rows), width="stretch", hide_index=True)
+                with st.expander("Dejenere (IUPAC) karşılıkları"):
+                    deg_rows = [{
+                        "F primer (dejenere)": c["forward_degenerate"],
+                        "R primer (dejenere)": c["reverse_degenerate"],
+                        "Prob (dejenere)": c["probe_degenerate"],
+                    } for c in evaluated]
+                    st.dataframe(pd.DataFrame(deg_rows), width="stretch", hide_index=True)
+
+                usable = [
+                    c for c in evaluated
+                    if c.get("turkey_fail", 1) == 0 and c.get("turkey_three", 1) == 0
+                ]
+                if not usable:
+                    st.error(
+                        "Üretilen non-dejenere adayların hiçbiri bu Türkiye dizilerinin tamamında "
+                        "3' uç/prob kriterlerini geçmedi. Adayı sipariş etmeyin; dejenere IUPAC "
+                        "tasarımını veya farklı hedef bölgeyi deneyin."
+                    )
+                else:
+                    labels = [
+                        f"{i + 1}. {c['forward']} / {c['reverse']} / {c['probe']}"
+                        for i, c in enumerate(usable)
+                    ]
+                    idx = st.selectbox("Aktif assay yapılacak aday", range(len(labels)),
+                                       format_func=lambda i: labels[i], key="tr_cons_choice")
+                    if st.button("Seçili Türkiye adayını aktif assay yap", key="tr_cons_use",
+                                 width="stretch"):
+                        try:
+                            new_active = consensus_to_active(
+                                {**active,
+                                 "amplicon_start": cons.get("region_start", active["amplicon_start"]),
+                                 "amplicon_end": cons.get("region_end", active["amplicon_end"])},
+                                usable[idx],
+                            )
+                            st.session_state["active_assay"] = new_active
+                            for _k in ("last_turkey", "last_turkey_subjects", "last_turkey_consensus",
+                                       "last_genotype", "last_specificity", "last_lod",
+                                       "last_order_gate", "blast_last",
+                                       "order_blast", "order_synthesis", "order_wetlab", "order_ack"):
+                                st.session_state[_k] = False if _k.startswith("order_") else None
+                            st.success("Türkiye consensus adayı aktif assay yapıldı. "
+                                       "Türkiye kontrolünü ve sipariş QC'yi yeniden çalıştırın.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Aday aktif assay'a çevrilemedi: {exc}")
+
+    with st.expander("Ham Türkiye sonuçlarını indir"):
+        st.download_button(
+            "📥 Türkiye kontrol CSV'sini indir",
+            data=pd.DataFrame(turkey_rows(result)).to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"turkiye_sus_kontrolu_{active.get('accession', 'assay')}.csv",
+            mime="text/csv",
+            key="tr_download",
+        )
+
+
+def _render_order_gate(ctx):
+    active = ctx["active_or_demo"]("order")
+    if not active:
+        return
+    _active_header(active)
+    st.markdown("#### Sipariş öncesi QC kapısı")
+    st.caption(
+        "Termodinamik, özgüllük, Türkiye suşları ve manuel teyitler birlikte değerlendirilir. "
+        "FAIL veya BLOCKED varsa sipariş listesi kilitlenir."
+    )
+
+    turkey_result = st.session_state.get("last_turkey")
+    specificity = st.session_state.get("last_specificity")
+    c1, c2, c3 = st.columns(3)
+    primer_blast_done = c1.checkbox("Primer-BLAST / BLASTn yapıldı", key="order_blast")
+    synthesis_confirmed = c2.checkbox("Sentez/modifikasyon teyit edildi", key="order_synthesis")
+    wetlab_planned = c3.checkbox("LOD/LOQ ve ıslak lab planı hazır", key="order_wetlab")
+
+    o1, o2, o3, o4 = st.columns(4)
+    reporter = o1.selectbox("Prob 5' raportör", ["FAM", "HEX", "ROX", "Cy5", "ATT O550", "Diğer"], key="order_reporter")
+    quencher = o2.selectbox("Prob 3' quencher", ["BHQ1", "BHQ2", "BHQ3", "TAMRA", "Diğer"], key="order_quencher")
+    scale = o3.selectbox("Sentez ölçeği", ["0.05 µmol", "0.1 µmol", "0.25 µmol", "1 µmol"], index=1, key="order_scale")
+    purification = o4.selectbox(
+        "Saflaştırma",
+        ["Standart desalt (primer) / HPLC (prob)", "HPLC", "PAGE"],
+        key="order_purification",
+    )
+
+    gate = build_order_gate(
+        active,
+        turkey_result=turkey_result,
+        specificity=specificity,
+        primer_blast_done=primer_blast_done,
+        synthesis_confirmed=synthesis_confirmed,
+        wetlab_planned=wetlab_planned,
+    )
+
+    m = st.columns(3)
+    m[0].metric("Toplam PASS", gate.get("n_pass", 0))
+    m[1].metric("WARN", gate.get("n_warn", 0))
+    m[2].metric("FAIL", gate.get("n_fail", 0))
+
+    if gate["overall"] == "PASS":
+        st.success("✅ Sipariş öncesi in-silico kontroller geçti. Yine de ıslak laboratuvar doğrulaması gerekir.")
+    elif gate["overall"] == "WARN":
+        st.warning("⚠️ Sipariş öncesi uyarılar var. Aşağıdaki maddeleri inceleyin.")
+    else:
+        st.error("❌ Sipariş listesi kilitli: kritik kontrol başarısız.")
+
+    gate_rows = [{
+        "Kontrol": c["label"],
+        "Durum": _status_text(c["status"]),
+        "Ayrıntı": c["detail"],
+    } for c in gate["checks"]]
+    st.dataframe(pd.DataFrame(gate_rows), width="stretch", hide_index=True)
+
+    order_rows = order_sheet_rows(
+        active, reporter=reporter, quencher=quencher, scale=scale, purification=purification
+    )
+    st.markdown("#### Sipariş listesi önizlemesi")
+    st.dataframe(pd.DataFrame(order_rows), width="stretch", hide_index=True)
+
+    allow_warn = True
+    if gate["overall"] == "WARN":
+        allow_warn = st.checkbox(
+            "WARN uyarılarını inceledim; bu risklerle devam ediyorum.", key="order_ack"
+        )
+    can_download = gate["overall"] == "PASS" or (gate["overall"] == "WARN" and allow_warn)
+
+    if can_download:
+        d1, d2 = st.columns(2)
+        d1.download_button(
+            "📥 Sipariş listesini indir",
+            data=pd.DataFrame(order_rows).to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"siparis_listesi_{active.get('accession', 'assay')}.csv",
+            mime="text/csv",
+            key="order_sheet_download",
+        )
+        d2.download_button(
+            "📥 QC karar raporunu indir",
+            data=pd.DataFrame(gate_rows).to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"siparis_qc_{active.get('accession', 'assay')}.csv",
+            mime="text/csv",
+            key="order_qc_download",
+        )
+    else:
+        st.info("Sipariş listesi, FAIL/BLOCKED kontrolleri giderilmeden indirilemez.")
+
+    if gate.get("blocking"):
+        with st.expander("Siparişi bloke eden maddeler"):
+            for item in gate["blocking"]:
+                st.write("• " + item)
 
 
 # ---------------------------------------------------------------------------

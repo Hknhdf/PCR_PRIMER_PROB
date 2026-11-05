@@ -57,6 +57,13 @@ Streamlit uygulaması. Hazır katalog: **11 virüs, 28 bakteri, 11 parazit (50 e
   - **SNP Ayrımı:** 3' uç SNP primerleri + WT kontrol primerı
   - **LAMP / RPA (beta):** RPA primer/prob, LAMP F3/B3/FIP/BIP, LAMP set kontrolü
   - **Panel Optimizer:** assay'ler arası dimer matrisi, uyumluluk matrisi, kanal ataması
+- **🛡️ Sipariş Kontrolü**
+  - **Türkiye Suş Kontrolü:** NCBI `Turkey[Country]` araması, yerel FASTA/ham dizi yükleme,
+    primer/prob mismatch, 3' uç ve prob mismatch analizi; PASS/WARN/FAIL sınıflandırması
+  - **Sipariş Öncesi Kontrol:** termodinamik + özgüllük + Türkiye sonucu + Primer-BLAST +
+    sentez teyidi + ıslak laboratuvar planı; FAIL/BLOCKED indirmeyi kilitler, WARN onay ister
+  - **Türkiye consensus adayı:** Türkiye dizilerinden yeni aday üretir, adayları tekrar
+    Türkiye dizilerine karşı test eder; hiçbiri geçmiyorsa sipariş uyarısı verir
 
 ## Kataloğa eklenen yeni etkenler (05.11.2026)
 
@@ -108,6 +115,13 @@ anotasyonundan alınan hedef gen koordinatlarıyla doğrulandı.
 | Prob | ACATGCATCCTGCCGTGCTTACAG | 24 nt | 69,2 °C | %54,2 |
 
 Amplikon 145 bp · prob amplikonun 76. bazında · prob–primer dimer yok · diğer 8 virüse karşı çapraz reaksiyon yok.
+
+> **Türkiye suşu uyarısı (05.11.2026):** Bu örnek set, NCBI'daki 20 CCHFV Türkiye S segmenti
+> dizisiyle karşılaştırıldığında 20 dizinin 18'inde kritik mismatch gösterdi (özellikle prob
+> bölgesinde 2–4 mismatch; bazı dizilerde primer 3' ucunda mismatch). **Bu seti Türkiye
+> suşları için olduğu gibi sipariş etmeyin.** Sipariş Kontrolü sekmesindeki Türkiye kontrolünü
+> çalıştırın; yeni/dejenere tasarım veya farklı hedef bölge gerekir. Bu sonuç örneklem
+> dizilere dayalı in-silico ön kontroldür, tüm Türkiye izolatlarını temsil etmez.
 
 ## Kalan / isteğe bağlı işler
 

@@ -80,7 +80,12 @@ from panel_opt import (
 )
 from browser_track import build_genome_track
 from pdf_report import build_assay_pdf
-from v3_ui import render_advanced_tabs, render_analysis_tabs, render_library_tabs
+from v3_ui import (
+    render_advanced_tabs,
+    render_analysis_tabs,
+    render_library_tabs,
+    render_order_tabs,
+)
 
 # --- 1. AYARLAR ---
 st.set_page_config(
@@ -114,6 +119,10 @@ for _key, _default in {
     "last_genotype": None,
     "last_specificity": None,
     "last_lod": None,
+    "last_turkey": None,
+    "last_turkey_subjects": None,
+    "last_turkey_consensus": None,
+    "last_order_gate": None,
     "panel_assays": [],
     "lit_last": None,
     "consensus_last": None,
@@ -396,10 +405,14 @@ def store_active_assay(virus, info, seq_str, start, end, result, accession,
         "created": datetime.now().isoformat(timespec="seconds"),
     }
     st.session_state["active_assay"] = active
-    for _k in ("last_genotype", "last_specificity", "last_lod", "lit_last",
-               "consensus_last", "snp_last", "rpa_last", "lamp_last",
+    for _k in ("last_genotype", "last_specificity", "last_lod", "last_turkey",
+               "last_turkey_subjects", "last_turkey_consensus", "last_order_gate",
+               "lit_last", "consensus_last", "snp_last", "rpa_last", "lamp_last",
                "blast_last", "thermo_unc"):
         st.session_state[_k] = None
+    # Yeni assay'da önceki sipariş teyitleri taşınmamalı.
+    for _k in ("order_blast", "order_synthesis", "order_wetlab", "order_ack"):
+        st.session_state[_k] = False
     return active
 
 
@@ -799,7 +812,7 @@ st.markdown(
 )
 st.caption(
     "v3.0 · Termodinamik, in-silico özgüllük, genotip kapsama, LOD/LOQ, PDF, literatür, "
-    "consensus/SNP, LAMP/RPA (beta) ve panel optimizasyonu."
+    "consensus/SNP, LAMP/RPA (beta), panel optimizasyonu, Türkiye suş kontrolü ve sipariş QC."
 )
 
 # v3.0 sekmelerinin kullanacağı uygulama bağlamı
@@ -825,11 +838,12 @@ _ctx = {
     "min_cons": min_cons,
 }
 
-tab_single, tab_panel, tab_analysis, tab_library, tab_advanced, tab_docs = st.tabs(
+tab_single, tab_panel, tab_analysis, tab_order, tab_library, tab_advanced, tab_docs = st.tabs(
     [
         "🧬 Tek Etken Tasarımı",
         "🧩 Multiplex Panel",
         "📊 Analiz",
+        "🛡️ Sipariş Kontrolü",
         "📚 Kütüphane",
         "🚀 İleri",
         "ℹ️ Yöntem ve Notlar",
@@ -1342,6 +1356,9 @@ with tab_panel:
 with tab_analysis:
     render_analysis_tabs(_ctx)
 
+with tab_order:
+    render_order_tabs(_ctx)
+
 with tab_library:
     render_library_tabs(_ctx)
 
@@ -1408,6 +1425,15 @@ SantaLucia nearest-neighbour modeli (Biopython `MeltingTemp.Tm_NN`), qPCR koşul
 - **RPA / LAMP (beta):** RPA primer/prob ve LAMP F3/B3/FIP/BIP önerileri; LAMP set kontrolü.
   Loop primerleri ve ıslak laboratuvar optimizasyonu kapsam dışıdır.
 - **Panel Optimizer:** assay'ler arası dimer matrisi, uyumluluk matrisi ve floresan kanal ataması.
+- **Sipariş Kontrolü → Türkiye Suş Kontrolü:** NCBI `Turkey[Country]` araması veya yerel FASTA
+  ile primer/prob mismatch, 3' uç mismatch'i ve prob mismatch'i kontrol edilir; PASS/WARN/FAIL
+  sınıflandırması verilir. Ülke metadata'sı eksik kayıtlar için FASTA yükleyin.
+- **Sipariş Kontrolü → Sipariş Öncesi Kontrol:** termodinamik, özgüllük, Türkiye suşları,
+  Primer-BLAST, sentez teyidi ve ıslak laboratuvar planı birlikte değerlendirilir.
+  FAIL/BLOCKED varsa sipariş listesi indirilemez; WARN varsa açık onay gerekir.
+- **Türkiye consensus adayı:** Türkiye dizilerinden yeni aday üretir ve adayları tekrar
+  Türkiye dizilerine karşı test eder. Non-dejenere adaylar tüm dizileri geçmiyorsa
+  "sipariş etmeyin" uyarısı verir.
 
 ### WHO vektör listesi kapsamı
 Kataloğa Tatarcık humması (Toscana/SFNV), TBEV, *Borrelia burgdorferi*,
@@ -1420,6 +1446,10 @@ Kataloğa Tatarcık humması (Toscana/SFNV), TBEV, *Borrelia burgdorferi*,
 - Bu araç **in silico ön değerlendirme** yapar; klinik validasyon yerine geçmez.
 - Özgüllük için mutlaka **Primer-BLAST / BLASTn** ile doğrulama yapın.
 - Çapraz reaksiyon taraması k-mer tabanlıdır; tam hizalama değildir.
+- Türkiye suş kontrolü NCBI ülke metadata'sına ve yüklediğiniz FASTA dizilerine bağlıdır;
+  tüm Türkiye izolatlarını temsil etmez. Şüpheli durumda ek yerel izolat dizileriyle doğrulayın.
+- CCHFV örnek seti, 20 Türkiye S segmenti ile yapılan in-silico kontrolde 18/20 FAIL verdi;
+  bu seti Türkiye suşları için olduğu gibi sipariş etmeyin.
 - LOD/LOQ simülasyonu ıslak laboratuvar validasyonunun yerine geçmez.
 - RPA/LAMP çıktıları **beta**dır; optimizasyon ve doğrulama gerektirir.
 - NCBI erişimi olmadan "Manuel dizi" modunu kullanın (korunmuşluk analizi organizma adı gerektirir).
