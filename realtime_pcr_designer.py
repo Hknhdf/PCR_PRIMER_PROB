@@ -27,6 +27,61 @@ from conservation import (
 from report import build_panel_workbook
 from pathogens import PATHOGENS, CATEGORY_ORDER, CATEGORY_ICON
 
+# --- v3.0 modülleri ---
+from thermo import (
+    analyze_oligo,
+    dimer_matrix,
+    thermo_score,
+    tm_uncertainty,
+)
+from specificity import (
+    blast_oligo,
+    in_silico_pcr,
+    risk_level,
+    scan_sequences,
+    specificity_score,
+)
+from genotype import (
+    analyze_genotypes,
+    coverage_figure,
+    fetch_subjects,
+    heatmap_figure,
+    logo_figure,
+)
+from stats_engine import (
+    likelihood_ratios,
+    lod_loq_analysis,
+    ppv_npv,
+    sample_size_sensitivity,
+    sample_size_specificity,
+)
+from literature import (
+    compare_assays,
+    comparison_table,
+    library_dataframe,
+    library_entry,
+    library_from_json,
+    library_to_json,
+    locate_assay,
+    validate_entry,
+)
+from advanced_design import (
+    check_lamp_set,
+    design_consensus_primers,
+    design_lamp,
+    design_rpa,
+    design_snp_primers,
+)
+from panel_opt import (
+    channel_assignment,
+    compatibility_matrix,
+    panel_dimer_table,
+    panel_summary,
+)
+from browser_track import build_genome_track
+from pdf_report import build_assay_pdf
+from v3_ui import render_advanced_tabs, render_analysis_tabs, render_library_tabs
+
 # --- 1. AYARLAR ---
 st.set_page_config(
     page_title="Real-Time PCR Primer & Probe Designer",
@@ -51,6 +106,25 @@ Entrez.email = _ncbi_email()
 if "virus_db" not in st.session_state:
     st.session_state.virus_db = {name: dict(entry) for name, entry in PATHOGENS.items()}
 VIRUS_DB = st.session_state.virus_db
+
+# v3.0 oturum durumu
+for _key, _default in {
+    "active_assay": None,
+    "assay_library": [],
+    "last_genotype": None,
+    "last_specificity": None,
+    "last_lod": None,
+    "panel_assays": [],
+    "lit_last": None,
+    "consensus_last": None,
+    "snp_last": None,
+    "rpa_last": None,
+    "lamp_last": None,
+    "blast_last": None,
+    "thermo_unc": None,
+}.items():
+    if _key not in st.session_state:
+        st.session_state[_key] = _default
 
 
 def ordered_names(db):
@@ -250,6 +324,236 @@ def design_one(seq_str, start, end, amp, cons_info=None, top_n=8, avoid_seqs=Non
         "cross_risk": bool(avoid_seqs and best and probe and not _cross_ok(best, probe)),
         "candidates": sets,
         "strict": strict,
+    }
+
+
+def store_active_assay(virus, info, seq_str, start, end, result, accession,
+                       region_text, reference, organism=""):
+    """Tek tasarım sonucunu, tüm analiz sekmelerinin kullanacağı aktif assay'a çevirir."""
+    best = result.get("best") or {}
+    probe = result.get("probe")
+    if not best:
+        return None
+
+    if len(seq_str) <= 60_000:
+        ref_seq, ref_offset = seq_str, 0
+    else:
+        ref_offset = max(0, int(start) - 3000)
+        ref_seq = seq_str[ref_offset: min(len(seq_str), int(end) + 3000)]
+
+    f_start = int(best["forward_start"])
+    f_end = f_start + int(best["forward_len"]) - 1
+    r_end = int(best["reverse_end"])
+    r_start = r_end - int(best["reverse_len"]) + 1
+    p_start = p_end = None
+    if probe:
+        p_start = f_start + int(probe["position"]) - 1
+        p_end = p_start + int(probe["length"]) - 1
+
+    active = {
+        "virus": virus,
+        "info": dict(info),
+        "category": info.get("category", "Virüs"),
+        "segment": info.get("segment", ""),
+        "accession": accession,
+        "region_text": region_text,
+        "reference": reference,
+        "organism": organism,
+        "seq_len": len(seq_str),
+        "ref_seq": ref_seq,
+        "ref_offset": ref_offset,
+        "ref_is_full": len(seq_str) <= 60_000,
+        "start": int(start),
+        "end": int(end),
+        "region_start_local": max(0, int(start) - ref_offset),
+        "region_end_local": min(len(ref_seq), int(end) - ref_offset),
+        "amplicon_start": max(0, f_start - 1 - ref_offset),
+        "amplicon_end": min(len(ref_seq), r_end - ref_offset),
+        "amplicon": best.get("amplicon_seq", ""),
+        "forward": best["forward"],
+        "reverse": best["reverse"],
+        "probe": probe["sequence"] if probe else "",
+        "forward_start": f_start,
+        "forward_end": f_end,
+        "reverse_start": r_start,
+        "reverse_end": r_end,
+        "probe_start": p_start,
+        "probe_end": p_end,
+        "probe_offset": int(probe["position"]) - 1 if probe else None,
+        "forward_tm": best["forward_tm"],
+        "reverse_tm": best["reverse_tm"],
+        "probe_tm": probe["tm"] if probe else None,
+        "forward_gc": best["forward_gc"],
+        "reverse_gc": best["reverse_gc"],
+        "probe_gc": probe["gc"] if probe else None,
+        "amplicon_size": best["amplicon_size"],
+        "cons_info": result.get("cons_info"),
+        "strict": result.get("strict"),
+        "cross_risk": result.get("cross_risk"),
+        "source": "single",
+        "best": dict(best),
+        "probe_info": dict(probe) if probe else None,
+        "created": datetime.now().isoformat(timespec="seconds"),
+    }
+    st.session_state["active_assay"] = active
+    for _k in ("last_genotype", "last_specificity", "last_lod", "lit_last",
+               "consensus_last", "snp_last", "rpa_last", "lamp_last",
+               "blast_last", "thermo_unc"):
+        st.session_state[_k] = None
+    return active
+
+
+def load_demo_assay():
+    """CCHFV doğrulanmış örnek assay'ını (veya canlı tasarımı) yükler."""
+    name = "Kırım Kongo Kanamalı Ateşi (CCHFV)"
+    info = VIRUS_DB.get(name)
+    if not info:
+        return False, "CCHFV katalogda bulunamadı."
+    fetched = fetch_genome(info["genbank_id"])
+    if fetched is None:
+        return False, "NCBI'dan CCHFV dizisi alınamadı. İnternet bağlantısını kontrol edin."
+    seq_str, organism = fetched
+    start, end = parse_region(info.get("target_region", ""), len(seq_str))
+    result = design_one(seq_str, start, end, 150, cons_info=None, top_n=12)
+    if result is None:
+        return False, "CCHFV için aday tasarım üretilemedi."
+
+    # Doğrulanmış set adaylar arasındaysa onu kullan.
+    known_f = "TGAGCACCCCAATGAAGTG"
+    known_r = "ACAGGGATTGTCCCAAAGC"
+    known_p = "ACATGCATCCTGCCGTGCTTACAG"
+    for cand in result.get("candidates", []):
+        if cand.get("forward") == known_f and cand.get("reverse") == known_r:
+            pos = cand.get("amplicon_seq", "").find(known_p)
+            if pos >= 0:
+                result["best"] = dict(cand)
+                result["probe"] = {
+                    "sequence": known_p,
+                    "position": pos + 1,
+                    "length": len(known_p),
+                    "tm": calculate_tm(known_p),
+                    "gc": calculate_gc_content(known_p),
+                    "dimer_risk": False,
+                }
+                result["strict"] = True
+            break
+
+    result["cons_info"] = None
+    store_active_assay(
+        name, info, seq_str, start, end, result, info["genbank_id"],
+        f"{start + 1}-{end}", info.get("reference", ""), organism,
+    )
+    return True, ""
+
+
+def active_or_demo(key: str):
+    """Aktif assay yoksa kullanıcıya tek tık örnek yükleme sunar."""
+    active = st.session_state.get("active_assay")
+    if active:
+        return active
+    st.info(
+        "Bu sekme **aktif assay** ile çalışır. Önce **Tek Etken Tasarımı** sekmesinde bir tasarım "
+        "çalıştırın; hemen denemek için aşağıdaki butonu kullanabilirsiniz."
+    )
+    if st.button("⚡ CCHFV doğrulanmış örnek assay'ı yükle", key=f"demo_{key}"):
+        with st.spinner("CCHFV örnek assay'ı hazırlanıyor..."):
+            ok, msg = load_demo_assay()
+        if ok:
+            st.success("Örnek assay yüklendi; sekmeyi yeniden açın.")
+            st.rerun()
+        else:
+            st.error(msg)
+    return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_genotype_subjects(organism, accession, reference_seq, n, keywords, big_genome):
+    """Genotip/consensus için NCBI'dan homolog dizileri çeker (önbellekli)."""
+    if not organism:
+        return []
+    return fetch_subjects(
+        organism,
+        exclude_accessions=[accession],
+        reference_seq=reference_seq,
+        n=int(n),
+        keywords=tuple(keywords or ()),
+        max_candidates=(int(n) * 3 if big_genome else None),
+        min_subject_len=(int(len(reference_seq) * 0.5) if big_genome else None),
+    )
+
+
+def active_design_region(active, flank=100):
+    """Aktif assay çevresinde yerel ve genomik tasarım bölgesi döndürür."""
+    ref = active["ref_seq"]
+    lo = max(0, int(active["amplicon_start"]) - int(flank))
+    hi = min(len(ref), int(active["amplicon_end"]) + int(flank))
+    return {
+        "local_start": lo,
+        "local_end": hi,
+        "region": ref[lo:hi],
+        "genomic_start": active["ref_offset"] + lo + 1,
+        "genomic_end": active["ref_offset"] + hi,
+    }
+
+
+def genotype_mismatch_density(result):
+    """Genotip matrisinden pozisyon bazlı mismatch sayısı (referans satırı hariç)."""
+    if not result or not result.get("matrix"):
+        return []
+    labels = result.get("matrix_labels") or []
+    matrix = result["matrix"]
+    start_idx = 1 if labels and labels[0] == "REF" else 0
+    n_cols = len(matrix[0]) if matrix else 0
+    out = []
+    for i in range(n_cols):
+        count = 0
+        for row in matrix[start_idx:]:
+            if i < len(row) and row[i] in (1, 2):
+                count += 1
+        out.append(count)
+    return out
+
+
+def assay_pdf_bytes(active, thermo_rows=None, coverage=None, specificity=None,
+                    lod=None, genotype=None, notes=""):
+    """Aktif assay için PDF baytları üretir."""
+    assay = {
+        "pathogen": active.get("virus", ""),
+        "category": active.get("category", ""),
+        "segment": active.get("segment", ""),
+        "accession": active.get("accession", ""),
+        "region": active.get("region_text", ""),
+        "forward": active.get("forward", ""),
+        "reverse": active.get("reverse", ""),
+        "probe": active.get("probe", ""),
+        "forward_start": active.get("forward_start"),
+        "forward_end": active.get("forward_end"),
+        "reverse_start": active.get("reverse_start"),
+        "reverse_end": active.get("reverse_end"),
+        "probe_start": active.get("probe_start"),
+        "probe_end": active.get("probe_end"),
+        "amplicon_size": active.get("amplicon_size"),
+        "forward_tm": active.get("forward_tm"),
+        "reverse_tm": active.get("reverse_tm"),
+        "probe_tm": active.get("probe_tm"),
+        "forward_gc": active.get("forward_gc"),
+        "reverse_gc": active.get("reverse_gc"),
+        "probe_gc": active.get("probe_gc"),
+    }
+    return build_assay_pdf(
+        assay, thermo_rows=thermo_rows, coverage=coverage,
+        specificity=specificity, lod=lod, genotype=genotype, notes=notes,
+    )
+
+
+def active_to_panel_assay(active):
+    return {
+        "name": active.get("virus", "Assay"),
+        "forward": active.get("forward", ""),
+        "reverse": active.get("reverse", ""),
+        "probe": active.get("probe", ""),
+        "amplicon_size": active.get("amplicon_size"),
+        "probe_tm": active.get("probe_tm"),
     }
 
 
@@ -461,16 +765,75 @@ with st.sidebar:
         st.success(f"✅ Bağlantı aktif ({info})") if ok else st.error(f"❌ {info}")
     st.caption("Erişim yoksa 'Manuel dizi' modunu kullanın.")
 
+    st.markdown("---")
+    st.subheader("Hızlı Başlangıç")
+    if st.button("⚡ CCHFV örnek assay'ı yükle", width="stretch", key="sidebar_demo"):
+        with st.spinner("CCHFV örnek assay'ı hazırlanıyor..."):
+            ok, msg = load_demo_assay()
+        if ok:
+            st.success("Örnek assay yüklendi.")
+            st.rerun()
+        else:
+            st.error(msg)
+    _active_side = st.session_state.get("active_assay")
+    if _active_side:
+        st.caption(
+            f"Aktif: **{_active_side['virus']}**  \n"
+            f"{_active_side['forward_start']}–{_active_side['reverse_end']} · "
+            f"{_active_side['amplicon_size']} bp"
+        )
+    else:
+        st.caption("Henüz aktif assay yok. Tek etken tasarımı veya örnek butonu ile başlayın.")
+
 # --- 5. BAŞLIK ---
 st.title("🧬 Real-Time PCR Primer & Prob Tasarım Motoru")
+_counts = {
+    cat: sum(1 for v in VIRUS_DB.values() if v.get("category", "Virüs") == cat)
+    for cat in CATEGORY_ORDER
+}
 st.markdown(
     "NCBI GenBank'tan canlı dizi çekme, **çoklu hizalama ile korunmuş bölge tespiti**, "
     "TaqMan primer/prob tasarımı ve **multiplex panel** raporlaması.  \n"
-    "Katalogda **9 virüs, 21 bakteri ve 10 parazit** hazır gelir; kenar çubuğundan yeni etken ekleyebilirsiniz."
+    f"Katalogda **{_counts.get('Virüs', 0)} virüs, {_counts.get('Bakteri', 0)} bakteri ve "
+    f"{_counts.get('Parazit', 0)} parazit** hazır gelir; kenar çubuğundan yeni etken ekleyebilirsiniz."
+)
+st.caption(
+    "v3.0 · Termodinamik, in-silico özgüllük, genotip kapsama, LOD/LOQ, PDF, literatür, "
+    "consensus/SNP, LAMP/RPA (beta) ve panel optimizasyonu."
 )
 
-tab_single, tab_panel, tab_docs = st.tabs(
-    ["🧬 Tek Etken Tasarımı", "🧩 Multiplex Panel", "ℹ️ Yöntem ve Notlar"]
+# v3.0 sekmelerinin kullanacağı uygulama bağlamı
+_ctx = {
+    "VIRUS_DB": VIRUS_DB,
+    "active_or_demo": active_or_demo,
+    "store_active_assay": store_active_assay,
+    "get_genotype_subjects": get_genotype_subjects,
+    "active_design_region": active_design_region,
+    "genotype_mismatch_density": genotype_mismatch_density,
+    "assay_pdf_bytes": assay_pdf_bytes,
+    "active_to_panel_assay": active_to_panel_assay,
+    "fetch_genome": fetch_genome,
+    "fetch_record": fetch_record,
+    "record_sequence": record_sequence,
+    "parse_region": parse_region,
+    "ordered_names": ordered_names,
+    "display_name": display_name,
+    "target_amplicon": target_amplicon,
+    "n_candidates": n_candidates,
+    "use_cons": use_cons,
+    "n_seqs": n_seqs,
+    "min_cons": min_cons,
+}
+
+tab_single, tab_panel, tab_analysis, tab_library, tab_advanced, tab_docs = st.tabs(
+    [
+        "🧬 Tek Etken Tasarımı",
+        "🧩 Multiplex Panel",
+        "📊 Analiz",
+        "📚 Kütüphane",
+        "🚀 İleri",
+        "ℹ️ Yöntem ve Notlar",
+    ]
 )
 
 # --- 6. TEK ETKEN ---
@@ -660,6 +1023,17 @@ with tab_single:
                 result["cons_info"] = cons_info
                 best = result["best"]
                 probe = result["probe"]
+                try:
+                    store_active_assay(
+                        virus, info, seq_str, start, end, result, accession,
+                        f"{start + 1}-{end}", reference, organism,
+                    )
+                    st.caption(
+                        "✅ Aktif assay güncellendi. **Analiz**, **Kütüphane** ve **İleri** "
+                        "sekmeleri bu primer/prob setini kullanır."
+                    )
+                except Exception as exc:
+                    st.warning(f"⚠️ Aktif assay kaydedilemedi: {exc}")
 
                 if not result["strict"]:
                     st.warning(
@@ -874,6 +1248,19 @@ with tab_panel:
         progress.progress(1.0, text="Tamamlandı")
         progress.empty()
 
+        # Panel Optimizer sekmesi için assay özetleri
+        st.session_state["panel_assays"] = [
+            {
+                "name": res["virus"],
+                "forward": res["best"]["forward"],
+                "reverse": res["best"]["reverse"],
+                "probe": (res["probe"] or {}).get("sequence", ""),
+                "amplicon_size": res["best"]["amplicon_size"],
+                "probe_tm": (res["probe"] or {}).get("tm"),
+            }
+            for res in results
+        ]
+
         for virus, reason in failed:
             st.warning(f"⚠️ {virus}: {reason}")
 
@@ -951,7 +1338,17 @@ with tab_panel:
             key="panel_xlsx",
         )
 
-# --- 8. YÖNTEM ---
+# --- 8. v3 ANALİZ / KÜTÜPHANE / İLERİ ---
+with tab_analysis:
+    render_analysis_tabs(_ctx)
+
+with tab_library:
+    render_library_tabs(_ctx)
+
+with tab_advanced:
+    render_advanced_tabs(_ctx)
+
+# --- 9. YÖNTEM ---
 with tab_docs:
     st.markdown(
         """
@@ -988,17 +1385,45 @@ SantaLucia nearest-neighbour modeli (Biopython `MeltingTemp.Tm_NN`), qPCR koşul
   küçük genomlarda (virüs) yalnızca bölge aralığı yeterlidir.
 - AT-zengin bölgelerde (ör. *Leishmania* maxicircle) uygun prob bulunamazsa Tm/GC hedefleri
   otomatik gevşetilir ve arayüzde uyarı gösterilir.
-- Tek etken tasarımında **"Diğer virüslerle çapraz reaksiyonu önle"** açıksa 8 virüs genomu
-  taranır; primer veya probu başka bir virüse bağlanabilecek adaylar elenir.
+- Tek etken tasarımında **"Diğer virüslerle çapraz reaksiyonu önle"** açıksa katalogdaki
+  diğer virüs genomları taranır; primer veya probu başka bir virüse bağlanabilecek adaylar elenir.
 - Prob seçiminde primerlerle **≥6 baz** tamamlayıcılık yapan adaylar elenir (dimer riski).
 - *T. gondii* hedefi 529 bp tekrar elementidir (AF146527.1); korunmuşluk 6 diziyle %96,6'dır.
+
+### v3.0 analiz sekmeleri
+- **Termodinamik:** Primer3 ile hairpin, homodimer/heterodimer ΔG ve 3' uç stabilitesi;
+  60 °C yapı analizi, 37 °C 3' uç analizi. Dimer matrisi ve Tm Monte Carlo belirsizliği.
+- **Özgüllük:** seed-and-extend in-silico PCR; hedef ve panel dizilerinde ≤N mismatch ile
+  bağlanma bölgesi arar, amplikon + prob konumunu doğrular. BLAST isteğe bağlıdır.
+- **Genotip kapsama:** NCBI'dan homolog diziler çekilir, referans amplikona hizalanır;
+  her oligo için mismatch, 3' uç riski ve Wilson %95 güven aralığı hesaplanır.
+- **LOD/LOQ:** Poisson kopya dağılımı + PCR verimi + Ct gürültüsü ile Monte Carlo;
+  probit MLE ve bootstrap ile LOD95, LOQ ve standart eğri. **Simülasyondur.**
+- **PDF raporu:** mevcut oturumdaki termodinamik, kapsama, özgüllük ve LOD/LOQ özetlerini birleştirir.
+- **Kütüphane:** yayınlanmış assay'ler yapıştırılıp referansta konumlandırılır; aktif assay ile
+  uyum skoru hesaplanır. Kütüphaneye hazır/doğrulanmamış sekans gömülmez.
+- **Genome Track:** Plotly tabanlı gen, primer/prob, korunmuşluk ve mismatch yoğunluğu izi.
+- **Consensus / dejenere primer:** IUPAC dejenere primerler; kapsama ve dejenere kat sayısı.
+- **SNP ayrımı:** mutant primerin 3' ucu SNP bazına denk gelir; WT kontrol primerı ile karşılaştırılır.
+- **RPA / LAMP (beta):** RPA primer/prob ve LAMP F3/B3/FIP/BIP önerileri; LAMP set kontrolü.
+  Loop primerleri ve ıslak laboratuvar optimizasyonu kapsam dışıdır.
+- **Panel Optimizer:** assay'ler arası dimer matrisi, uyumluluk matrisi ve floresan kanal ataması.
+
+### WHO vektör listesi kapsamı
+Kataloğa Tatarcık humması (Toscana/SFNV), TBEV, *Borrelia burgdorferi*,
+*Borrelia hermsii*, *Rickettsia rickettsii*, *Anaplasma phagocytophilum*,
+*Ehrlichia chaffeensis*, *Neoehrlichia mikurensis*, *Bartonella henselae* ve
+*Babesia microti* eklendi. CCHFV, Batı Nil, Dengue, Chikungunya, Zika, sıtma,
+*Leishmania*, *Coxiella burnetii* ve tularemi zaten katalogdaydı.
 
 ### Sınırlamalar
 - Bu araç **in silico ön değerlendirme** yapar; klinik validasyon yerine geçmez.
 - Özgüllük için mutlaka **Primer-BLAST / BLASTn** ile doğrulama yapın.
 - Çapraz reaksiyon taraması k-mer tabanlıdır; tam hizalama değildir.
+- LOD/LOQ simülasyonu ıslak laboratuvar validasyonunun yerine geçmez.
+- RPA/LAMP çıktıları **beta**dır; optimizasyon ve doğrulama gerektirir.
 - NCBI erişimi olmadan "Manuel dizi" modunu kullanın (korunmuşluk analizi organizma adı gerektirir).
         """
     )
 
-st.caption(f"v2.0 · {datetime.now():%Y-%m-%d %H:%M} · in silico ön değerlendirme aracı")
+st.caption(f"v3.0 · {datetime.now():%Y-%m-%d %H:%M} · in silico ön değerlendirme aracı")

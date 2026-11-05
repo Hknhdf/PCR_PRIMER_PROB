@@ -16,18 +16,33 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 - **Etken kataloğu** — virüs, bakteri ve parazit; büyük genomlarda hedef gen taraması
 - **Hazır etken şablonu** — yeni etken/varyant formunda listeden seçince alanlar otomatik dolar
 
+### v3.0 analiz ve ileri tasarım sekmeleri
+
+- **Termodinamik** — Primer3 hairpin / homo-heterodimer ΔG, 3' uç stabilitesi, dimer matrisi, Tm Monte Carlo belirsizliği
+- **Özgüllük** — deterministik in-silico PCR, panel taraması, risk skoru, isteğe bağlı NCBI BLAST
+- **Genotip kapsama** — çoklu dizi hizalaması, mismatch matrisi, Wilson %95 GA, sequence logo, genome track
+- **LOD / LOQ** — Poisson + verim + Ct gürültüsü Monte Carlo, probit MLE/bootstrap, standart eğri, PPV/NPV, örneklem büyüklüğü
+- **PDF assay kartı** — termodinamik, kapsama, özgüllük ve LOD/LOQ özeti
+- **Literatür / assay karşılaştırma** — yayınlanmış primerleri referansta konumlandırma, aktif assay ile uyum skoru, JSON kütüphanesi
+- **Consensus / dejenere primer** — IUPAC dejenere primerler, kapsama ve dejenere kat sayısı
+- **SNP ayrımı** — 3' uç SNP primerleri + WT kontrol primerı
+- **RPA / LAMP (beta)** — RPA primer/prob ve LAMP F3/B3/FIP/BIP önerileri, LAMP set kontrolü
+- **Panel Optimizer** — assay'ler arası dimer matrisi, uyumluluk matrisi, kanal ataması
+
 ## Hedef etkenler
 
-**Virüsler (9):** CCHFV · Batı Nil · Hantavirüs · Dengue · Chikungunya · Zika · Ebola · Marburg · Aigai
+**Virüsler (11):** CCHFV · Batı Nil · Hantavirüs · Dengue · Chikungunya · Zika · Ebola · Marburg · Aigai ·
+Tatarcık humması (Toscana/SFNV) · Kene kaynaklı ensefalit (TBEV)
 
-**Bakteriler (21):** *M. tuberculosis* · *E. coli* · *S. aureus* · *S. pneumoniae* ·
+**Bakteriler (28):** *M. tuberculosis* · *E. coli* · *S. aureus* · *S. pneumoniae* ·
 *K. pneumoniae* · *Salmonella* · *L. monocytogenes* · *V. cholerae* · *N. meningitidis* ·
 *B. pertussis* · *L. pneumophila* · *H. pylori* · *C. difficile* · *Brucella* ·
 *F. tularensis* · *Y. pestis* · *B. anthracis* · *C. trachomatis* · *M. pneumoniae* ·
-*C. burnetii* · *P. aeruginosa*
+*C. burnetii* · *P. aeruginosa* · *B. burgdorferi* · *B. hermsii* · *R. rickettsii* ·
+*A. phagocytophilum* · *E. chaffeensis* · *N. mikurensis* · *B. henselae*
 
-**Parazitler (10):** *P. falciparum* · *T. gondii* · *L. donovani* · *T. brucei* · *T. cruzi* ·
-*Giardia* · *E. histolytica* · *C. parvum* · *S. mansoni* · *E. multilocularis*
+**Parazitler (11):** *P. falciparum* · *T. gondii* · *L. donovani* · *T. brucei* · *T. cruzi* ·
+*Giardia* · *E. histolytica* · *C. parvum* · *S. mansoni* · *E. multilocularis* · *B. microti*
 
 Kenar çubuğundan yeni etken eklenebilir; kalıcı ekleme için `pathogens.py` içindeki
 `PATHOGENS` sözlüğüne kayıt ekleyin.
@@ -57,3 +72,5 @@ NCBI_EMAIL = "ad.soyad@kurum.gov.tr"
 
 Bu araç **in silico ön değerlendirme** içindir. Klinik/laboratuvar kullanımı öncesi
 Primer-BLAST özgüllük kontrolü, dimer analizi ve LOD/LOQ validasyonu zorunludur.
+RPA/LAMP çıktıları **beta**dır; ıslak laboratuvar optimizasyonu olmadan kullanılmamalıdır.
+PDF ve kütüphane çıktıları araştırma amaçlıdır, tıbbi karar desteği değildir.
