@@ -123,6 +123,24 @@ Amplikon 145 bp · prob amplikonun 76. bazında · prob–primer dimer yok · di
 > çalıştırın; yeni/dejenere tasarım veya farklı hedef bölge gerekir. Bu sonuç örneklem
 > dizilere dayalı in-silico ön kontroldür, tüm Türkiye izolatlarını temsil etmez.
 
+## Öncelikli 5 etken — Türkiye taraması (06.11.2026)
+
+NCBI `Turkey[Country]` araması ve hedef bölgeye lokal homoloji filtresiyle yapılan kontrol.
+Hedef bölgeyi içermeyen kısa/partial kayıtlar **N/A** sayılır; PASS/WARN/FAIL ve sipariş
+kapısı yalnızca değerlendirilebilir dizileri kullanır.
+
+| Etken | Türkiye kaydı | Mevcut katalog seti | Durum |
+|---|---|---|---|
+| CCHFV | 22 S segmenti | 0 PASS · 2 WARN · 20 FAIL | **Sipariş engelli.** Türkiye referanslı en iyi aday: 1 PASS · 20 WARN · 1 FAIL; hâlâ kapıyı geçmiyor. |
+| Batı Nil | 2 tam genom + 1 kısmi hedef bölge | Lineage-2 set: 0 PASS · 0 WARN · 3 FAIL | **Sipariş engelli.** OP617270.1 NS5 adayı 2/2 tam genomda PASS; örneklem yalnızca 2, sipariş için yeterli değil. |
+| Dengue | 0 | Değerlendirilemedi | NCBI'da Türkiye kaydı yok; yerel/importe izolat FASTA gerekli. |
+| Zika | 0 | Değerlendirilemedi | NCBI'da Türkiye kaydı yok; yerel/importe izolat FASTA gerekli. |
+| Chikungunya | 0 | Değerlendirilemedi | NCBI'da Türkiye kaydı yok; yerel/importe izolat FASTA gerekli. |
+
+> Bu tablo sipariş listesi değildir. CCHFV ve Batı Nil için bulunan adaylar in-silico
+> ön değerlendirme aşamasındadır; Primer-BLAST, dimer analizi, LOD/LOQ ve ıslak laboratuvar
+> doğrulaması olmadan kullanılmamalıdır.
+
 ## Kalan / isteğe bağlı işler
 
 1. **Islak laboratuvar doğrulaması** — tüm setler için Primer-BLAST, dimer analizi, LOD/LOQ

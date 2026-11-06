@@ -20,7 +20,7 @@ import io
 import re
 from datetime import datetime
 
-from Bio import SeqIO
+from Bio import Align, SeqIO
 
 from genotype import analyze_genotypes, fetch_subjects
 from thermo import analyze_oligo, dimer_matrix
@@ -28,6 +28,7 @@ from thermo import analyze_oligo, dimer_matrix
 PASS = "PASS"
 WARN = "WARN"
 FAIL = "FAIL"
+NA = "N/A"
 BLOCKED = "BLOCKED"
 
 
@@ -68,27 +69,76 @@ def parse_fasta_text(text: str) -> list[dict]:
     return records
 
 
+def _local_homology(ref: str, seq: str) -> tuple[float, float]:
+    """Referans amplikona lokal hizalama ile (identity, ref kapsaması) döndürür."""
+    ref = str(ref).upper()
+    seq = str(seq).upper()
+    if not ref or not seq:
+        return 0.0, 0.0
+    try:
+        al = Align.PairwiseAligner()
+        al.mode = "local"
+        al.match_score = 2.0
+        al.mismatch_score = -1.0
+        al.open_gap_score = -5.0
+        al.extend_gap_score = -1.0
+        a = al.align(ref, seq)[0]
+        r, s = str(a[0]), str(a[1])
+        aligned_ref = sum(1 for c in r if c != "-")
+        matches = sum(1 for x, y in zip(r, s) if x != "-" and x == y)
+        return matches / max(1, aligned_ref), aligned_ref / len(ref)
+    except Exception:
+        return 0.0, 0.0
+
+
 def fetch_turkey_subjects(organism: str, reference_amp: str, n: int = 20,
                           keywords=(), accession: str = "", country: str = "Turkey"):
     """NCBI'da organizma + ülke filtresiyle dizileri çeker.
 
+    Hedef gen anahtar kelimesiyle bulunanlar ve ülke genel araması birleştirilir;
+    böylece yalnızca kısa gen fragmanları değil, tam genomlar da değerlendirilir.
     Ülke metadata'sı boş olan kayıtlar bu yolla gelmez; kullanıcı FASTA yüklemelidir.
     """
     if not organism:
         return []
-    return fetch_subjects(
-        organism,
-        exclude_accessions=[accession] if accession else [],
-        reference_seq=reference_amp,
-        n=int(n),
-        keywords=tuple(keywords or ()),
-        min_subject_len=60,
-        country=country or None,
-    )
+    exclude = [accession] if accession else []
+    kw = tuple(keywords or ())
+    fetch_n = min(300, max(int(n) * 4, 60))
+    batches = []
+    if kw:
+        batches.append(fetch_subjects(
+            organism, exclude_accessions=exclude, reference_seq=reference_amp,
+            n=fetch_n, keywords=kw, min_subject_len=60,
+            country=country or None, min_similarity=0.0,
+        ))
+    batches.append(fetch_subjects(
+        organism, exclude_accessions=exclude, reference_seq=reference_amp,
+        n=fetch_n, keywords=(), min_subject_len=60,
+        country=country or None, min_similarity=0.0,
+    ))
+    merged = {}
+    for item in (x for batch in batches for x in batch):
+        seq = str(item.get("seq", "")).upper()
+        if seq:
+            merged.setdefault(seq, item)
+
+    # Ülke araması segment/lineage karışık gelebilir. Hedef bölgeye lokal
+    # homoloji göstermeyen kayıtları (ör. CCHFV L segmenti) ele.
+    filtered = []
+    for item in merged.values():
+        identity, coverage = _local_homology(reference_amp, item.get("seq", ""))
+        if identity >= 0.70 and coverage >= 0.60:
+            filtered.append((identity * coverage, len(item.get("seq", "")), item))
+    filtered.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [item for _, _, item in filtered[:int(n)]]
 
 
 def classify_record(rec: dict, expected_size: int, has_probe: bool = True) -> tuple[str, str]:
     """Tek bir dizinin primer/prob uyumunu PASS/WARN/FAIL olarak sınıflandırır."""
+    oligo_binding = any(rec.get(k) is not None for k in ("F", "R", "P"))
+    if rec.get("error") and not oligo_binding:
+        # Kısa/partial kayıt hedef bölgeyi içermiyor olabilir; mismatch gibi sayma.
+        return NA, "Hedef bölge bu kayıtta yok; değerlendirilemedi."
     if rec.get("error") and not rec.get("found") and not rec.get("partial"):
         return FAIL, str(rec["error"])[:160]
     if not rec.get("found") and not rec.get("partial"):
@@ -185,13 +235,15 @@ def evaluate_turkey_strains(active: dict, subjects: list[dict], max_mismatches: 
 
     result["rows"] = rows
     result["n_total"] = len(rows)
+    result["n_na"] = sum(1 for r in rows if r["status"] == NA)
+    result["n_evaluable"] = result["n_total"] - result["n_na"]
     result["n_pass"] = sum(1 for r in rows if r["status"] == PASS)
     result["n_warn"] = sum(1 for r in rows if r["status"] == WARN)
     result["n_fail"] = sum(1 for r in rows if r["status"] == FAIL)
     result["n_three_prime_risk"] = sum(1 for r in rows if (r.get("three_mm") or 0) > 0)
     if result["n_fail"]:
         result["overall"] = FAIL
-    elif result["n_warn"]:
+    elif result["n_warn"] or result["n_evaluable"] == 0:
         result["overall"] = WARN
     else:
         result["overall"] = PASS
@@ -416,17 +468,28 @@ def build_order_gate(active: dict, turkey_result: dict | None = None,
         checks.append(_check("specificity", "Özgüllük taraması", WARN,
                              "Henüz çalıştırılmadı; Analiz → Özgüllük sekmesini kullanın."))
 
-    if turkey_result and turkey_result.get("n_total"):
+    n_eval = int(turkey_result.get("n_evaluable", turkey_result.get("n_total", 0)) or 0) if turkey_result else 0
+    if turkey_result and n_eval:
         n_fail = int(turkey_result.get("n_fail") or 0)
         n_warn = int(turkey_result.get("n_warn") or 0)
         n_pass = int(turkey_result.get("n_pass") or 0)
-        detail = f"{n_pass} PASS · {n_warn} WARN · {n_fail} FAIL / {turkey_result['n_total']} dizi."
+        n_na = int(turkey_result.get("n_na") or 0)
+        detail = f"{n_pass} PASS · {n_warn} WARN · {n_fail} FAIL / {n_eval} değerlendirilebilir dizi"
+        if n_na:
+            detail += f" ({n_na} hedef bölge yok)"
+        detail += "."
         if n_fail:
             checks.append(_check("turkey", "Türkiye suşları", FAIL, detail))
         elif n_warn:
             checks.append(_check("turkey", "Türkiye suşları", WARN, detail))
         else:
             checks.append(_check("turkey", "Türkiye suşları", PASS, detail))
+    elif turkey_result and turkey_result.get("n_total"):
+        checks.append(_check(
+            "turkey", "Türkiye suşları", WARN,
+            f"{turkey_result['n_total']} kayıt bulundu ama hiçbiri hedef bölgeyi içermiyor; "
+            "hedef bölgeyi kapsayan FASTA yükleyin.",
+        ))
     else:
         checks.append(_check("turkey", "Türkiye suşları", WARN,
                              "Türkiye dizisi değerlendirilmedi; NCBI veya FASTA ile kontrol edin."))

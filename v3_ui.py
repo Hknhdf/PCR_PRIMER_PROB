@@ -884,6 +884,7 @@ def _status_text(status):
         "PASS": "✅ PASS",
         "WARN": "⚠️ WARN",
         "FAIL": "❌ FAIL",
+        "N/A": "➖ N/A",
         "BLOCKED": "⛔ BLOCKED",
     }.get(status, str(status))
 
@@ -998,24 +999,32 @@ def _render_turkey_strains(ctx):
         st.error(result["error"])
         return
 
-    m = st.columns(5)
-    m[0].metric("Değerlendirilen", result.get("n_total", 0))
-    m[1].metric("PASS", result.get("n_pass", 0))
-    m[2].metric("WARN", result.get("n_warn", 0))
-    m[3].metric("FAIL", result.get("n_fail", 0))
-    m[4].metric("3' uç riski", result.get("n_three_prime_risk", 0))
+    m = st.columns(6)
+    m[0].metric("Toplam kayıt", result.get("n_total", 0))
+    m[1].metric("Değerlendirilebilir", result.get("n_evaluable", result.get("n_total", 0)))
+    m[2].metric("PASS", result.get("n_pass", 0))
+    m[3].metric("WARN", result.get("n_warn", 0))
+    m[4].metric("FAIL", result.get("n_fail", 0))
+    m[5].metric("3' uç riski", result.get("n_three_prime_risk", 0))
 
     if result.get("overall") == "PASS":
         st.success("✅ Tüm değerlendirilen Türkiye dizileri primer/prob setiyle uyumlu.")
     elif result.get("overall") == "WARN":
-        st.warning("⚠️ Bazı dizilerde mismatch/kısmi eşleşme var; sipariş öncesi inceleyin.")
+        if result.get("n_evaluable", 0) == 0:
+            st.warning(
+                "⚠️ Kayıtlar bulundu ama hiçbiri hedef bölgeyi içermiyor. "
+                "Hedef bölgeyi kapsayan yerel FASTA yükleyin."
+            )
+        else:
+            st.warning("⚠️ Bazı dizilerde mismatch/kısmi eşleşme var; sipariş öncesi inceleyin.")
     else:
         st.error("❌ En az bir Türkiye dizisinde kritik uyumsuzluk var; sipariş vermeyin.")
 
     st.dataframe(pd.DataFrame(turkey_rows(result)), width="stretch", hide_index=True)
     st.caption(
         "PASS = tam eşleşme; WARN = 1–2 mismatch veya kısmi eşleşme; "
-        "FAIL = 3' uç mismatch, ≥3 primer mismatch veya ≥2 prob mismatch."
+        "FAIL = 3' uç mismatch, ≥3 primer mismatch veya ≥2 prob mismatch; "
+        "N/A = kayıt hedef bölgeyi içermiyor (mismatch olarak sayılmaz)."
     )
 
     if result.get("coverage"):

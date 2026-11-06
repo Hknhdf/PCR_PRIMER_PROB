@@ -33,7 +33,8 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 
 - **Türkiye Suş Kontrolü** — NCBI `Turkey[Country]` araması, yerel FASTA/ham dizi yükleme;
   primer/prob bağlanma bölgelerinde mismatch, 3' uç mismatch'i, prob mismatch'i ve amplikon
-  varlığını PASS / WARN / FAIL olarak raporlar.
+  varlığını PASS / WARN / FAIL olarak raporlar. Hedef bölgeyi içermeyen kısa/partial
+  kayıtlar **N/A** sayılır ve mismatch olarak değerlendirilmez.
 - **Sipariş Öncesi Kontrol** — termodinamik, özgüllük taraması, Türkiye suşları, Primer-BLAST,
   sentez/modifikasyon ve ıslak laboratuvar planı tek karar tablosunda birleştirilir.
   FAIL/BLOCKED varsa sipariş listesi indirilemez; WARN varsa açık onay gerekir.
@@ -88,3 +89,8 @@ Sipariş öncesi **Türkiye Suş Kontrolü** ve **Sipariş Öncesi Kontrol** kap
 NCBI'da ülke metadata'sı eksik olabileceği için yerel/Türkiye izolatı FASTA dizileriyle
 kontrolü tamamlayın. RPA/LAMP çıktıları **beta**dır; ıslak laboratuvar optimizasyonu olmadan
 kullanılmamalıdır. PDF ve kütüphane çıktıları araştırma amaçlıdır, tıbbi karar desteği değildir.
+
+**Öncelikli arbovirüsler:** CCHFV, Batı Nil, Dengue, Zika ve Chikungunya için katalogdaki
+hazır setler doğrudan sipariş edilmemelidir. CCHFV ve Batı Nil'de NCBI Türkiye kayıtları
+mevcut olup mevcut setler uyumsuzdur; Dengue, Zika ve Chikungunya için NCBI'da `Turkey[Country]`
+kaydı bulunmadığından yerel/importe izolat FASTA dizileriyle kontrol zorunludur.

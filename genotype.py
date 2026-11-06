@@ -411,11 +411,16 @@ def analyze_genotypes(ref_seq: str, amplicon_start: int, amplicon_end: int,
 
 def fetch_subjects(organism: str, exclude_accessions, reference_seq: str, n: int = 12,
                    keywords=(), max_candidates=None, min_subject_len=None,
-                   country: str | None = None):
+                   country: str | None = None, min_similarity=None):
     """NCBI'den ayni organizmaya ait dizileri ceker; genotype.analyze_genotypes icin hazirlar.
 
     country verilirse yalnizca o ulkeye ait kayitlar aranir (or. Turkey).
+    min_similarity=0.0 ulke taramasinda farkli lineage'lari da getirir; hedef bolge
+    yoksa analyze_genotypes bunu 'degerlendirilemez' olarak isaretler.
     """
+    kwargs = {}
+    if min_similarity is not None:
+        kwargs["min_similarity"] = float(min_similarity)
     rows = fetch_related_sequences(
         organism,
         exclude_accessions=exclude_accessions,
@@ -425,6 +430,7 @@ def fetch_subjects(organism: str, exclude_accessions, reference_seq: str, n: int
         max_candidates=max_candidates,
         min_subject_len=min_subject_len,
         country=country,
+        **kwargs,
     )
     return [{"id": acc, "description": desc, "seq": seq} for acc, desc, seq in rows]
 
