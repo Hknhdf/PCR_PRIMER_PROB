@@ -90,6 +90,12 @@ NCBI'da ülke metadata'sı eksik olabileceği için yerel/Türkiye izolatı FAST
 kontrolü tamamlayın. RPA/LAMP çıktıları **beta**dır; ıslak laboratuvar optimizasyonu olmadan
 kullanılmamalıdır. PDF ve kütüphane çıktıları araştırma amaçlıdır, tıbbi karar desteği değildir.
 
+**Oligo doğrulama notu:** uygulama hazır literatür dizileri sunmaz; referans üzerinden yeni aday
+üretir. Kısa (19–24 nt) oligo dizilerini Google'da aramak doğrulama değildir. Forward ve prob
+referans ileri iplikte aynen bulunur; reverse primerin sipariş dizisi ileri iplikte ters
+komplement olarak bulunur. Doğrulama için NCBI BLASTn/Primer-BLAST ve accession + koordinat
+kullanılmalıdır.
+
 **Öncelikli arbovirüsler:** CCHFV, Batı Nil, Dengue, Zika ve Chikungunya için katalogdaki
 hazır setler doğrudan sipariş edilmemelidir. CCHFV ve Batı Nil'de NCBI Türkiye kayıtları
 mevcut olup mevcut setler uyumsuzdur; Dengue, Zika ve Chikungunya için NCBI'da `Turkey[Country]`

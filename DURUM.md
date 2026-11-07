@@ -1,6 +1,6 @@
 # PROJE DURUMU — kaldığım yerden devam
 
-Son güncelleme: 05.11.2026
+Son güncelleme: 07.11.2026
 
 ## Proje nedir
 
@@ -140,6 +140,21 @@ kapısı yalnızca değerlendirilebilir dizileri kullanır.
 > Bu tablo sipariş listesi değildir. CCHFV ve Batı Nil için bulunan adaylar in-silico
 > ön değerlendirme aşamasındadır; Primer-BLAST, dimer analizi, LOD/LOQ ve ıslak laboratuvar
 > doğrulaması olmadan kullanılmamalıdır.
+
+## Baştan sona referans bağlanma kontrolü (07.11.2026)
+
+Kısa oligo dizilerinin Google'da bulunmaması, yanlış tasarım sonucu değildir. Uygulama hazır
+literatür dizileri sunmaz; referans diziden yeni aday üretir. 19–24 nt'lik oligo dizileri arama
+motorlarında düzenli indekslenmez. Ayrıca reverse primerin sipariş dizisi (`5'→3'`) GenBank/NCBI
+ileri iplikte ters komplement olarak bulunur; ileri iplikte aranan dizi ters komplementtir.
+
+| Kontrol | Sonuç |
+|---|---|
+| Kod derleme | `PY_COMPILE_OK` |
+| AppTest — boş uygulama | 0 istisna |
+| CCHFV referans eşleşmesi | `NC_005302.1`: F 1101–1119, R bağlanma bölgesi 1227–1245, prob 1176–1199; amplikon 1101–1245, 145 bp, 0 mismatch |
+| 5 öncelikli etken referans eşleşmesi | F/Prob ileri iplikte tam eşleşme; reverse primer ters komplementi tam eşleşme |
+| Arayüz | Referans bağlanma haritası + Google/Primer-BLAST doğrulama notu eklendi |
 
 ## Kalan / isteğe bağlı işler
 

@@ -1107,6 +1107,44 @@ with tab_single:
                         f"Amplikon {best['forward_start']}–{best['reverse_end']} nt "
                         f"({best['amplicon_size']} bp)"
                     )
+
+                    # Referans karşılıkları: Forward/prob ileri iplikte aynen bulunur;
+                    # reverse oligo, GenBank/NCBI ileri dizisinin ters komplementidir.
+                    r_site_start = int(best["reverse_end"]) - int(best["reverse_len"]) + 1
+                    ref_rows = [
+                        {
+                            "Oligo": "Forward",
+                            "Sipariş dizisi (5'→3')": best["forward"],
+                            "Referans ileri iplikteki karşılık": best["forward"],
+                            "Başlangıç": int(best["forward_start"]),
+                            "Bitiş": int(best["forward_start"]) + int(best["forward_len"]) - 1,
+                        },
+                        {
+                            "Oligo": "Reverse",
+                            "Sipariş dizisi (5'→3')": best["reverse"],
+                            "Referans ileri iplikteki karşılık": revcomp(best["reverse"]),
+                            "Başlangıç": r_site_start,
+                            "Bitiş": int(best["reverse_end"]),
+                        },
+                    ]
+                    if probe:
+                        p_start = int(best["forward_start"]) + int(probe["position"]) - 1
+                        ref_rows.append({
+                            "Oligo": "TaqMan prob",
+                            "Sipariş dizisi (5'→3')": probe["sequence"],
+                            "Referans ileri iplikteki karşılık": probe["sequence"],
+                            "Başlangıç": p_start,
+                            "Bitiş": p_start + int(probe["length"]) - 1,
+                        })
+                    st.markdown("#### Referans bağlanma haritası")
+                    st.dataframe(pd.DataFrame(ref_rows), width="stretch", hide_index=True)
+                    st.caption(
+                        "Google ile oligo dizisini doğrulamayın: 19–24 nt'lik oligo dizileri "
+                        "arama motorlarında indekslenmez ve bu tasarımlar yayınlanmış assay'ler "
+                        "olmayabilir. Reverse primerin sipariş dizisi, referans ileri iplikte "
+                        "ters komplement olarak bulunur. Doğrulama için NCBI BLASTn/Primer-BLAST, "
+                        "GenBank accession + koordinat ve uygulamadaki in-silico PCR kullanılmalıdır."
+                    )
                     ok, msg = validate_primer_primer(best["forward"], best["reverse"])
                     st.write(("✅ " if ok else "❌ ") + msg)
                     if probe:
@@ -1445,6 +1483,10 @@ Kataloğa Tatarcık humması (Toscana/SFNV), TBEV, *Borrelia burgdorferi*,
 ### Sınırlamalar
 - Bu araç **in silico ön değerlendirme** yapar; klinik validasyon yerine geçmez.
 - Özgüllük için mutlaka **Primer-BLAST / BLASTn** ile doğrulama yapın.
+- Uygulama literatürdeki hazır assay'leri sunmaz; referans diziden **yeni aday** üretir.
+  Kısa (19–24 nt) oligo dizileri Google'da bulunmayabilir. Ters yönlü reverse primer
+  GenBank ileri iplikte ters komplement olarak aranmalıdır; doğrulama accession + koordinat,
+  BLASTn veya Primer-BLAST ile yapılmalıdır.
 - Çapraz reaksiyon taraması k-mer tabanlıdır; tam hizalama değildir.
 - Türkiye suş kontrolü NCBI ülke metadata'sına ve yüklediğiniz FASTA dizilerine bağlıdır;
   tüm Türkiye izolatlarını temsil etmez. Şüpheli durumda ek yerel izolat dizileriyle doğrulayın.
