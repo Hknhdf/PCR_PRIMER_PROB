@@ -54,9 +54,10 @@ Streamlit uygulaması. Hazır katalog: **11 virüs, 28 bakteri, 11 parazit (50 e
     aktif assay ile uyum skoru, JSON kütüphanesi; doğrulanmamış hazır dizi gömülmez
   - **Genome Track:** Plotly tabanlı gen/primer/korunmuşluk/mismatch izleyicisi
 - **📄 Yayınlanmış Assay'ler**
-  - Semantic Scholar/Crossref ile makale bibliyografisini atıf sayısına göre sıralar; makaledeki
-    primer/prob dizileri kullanıcı tarafından aktarılır, referans üzerinde konumlandırılır ve
-    assay kütüphanesine eklenir. Sistem yayınlanmış dizi uydurmaz.
+  - Semantic Scholar/Crossref ile makale bibliyografisini atıf sayısına göre sıralar; erişilebilir
+    tam metin varsa olası primer/prob dizileri otomatik aday olarak çıkarılır. Onaylanan diziler
+    referans üzerinde konumlandırılır ve assay kütüphanesine eklenir. Sistem yayınlanmış dizi
+    uydurmaz.
 - **🚀 İleri**
   - **Consensus / Dejenere:** IUPAC dejenere primerler, kapsama ve dejenere kat sayısı
   - **SNP Ayrımı:** 3' uç SNP primerleri + WT kontrol primerı

@@ -11,3 +11,4 @@ reportlab>=4.0
 matplotlib>=3.7
 logomaker>=0.8
 requests>=2.31
+pypdf>=5.0

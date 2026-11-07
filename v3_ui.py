@@ -33,6 +33,7 @@ from genotype import (
 from literature import (
     compare_assays,
     comparison_table,
+    extract_published_assay_candidates,
     library_dataframe,
     library_entry,
     library_from_json,
@@ -1266,6 +1267,69 @@ def _render_order_gate(ctx):
 # YAYINLANMIŞ ASSAY'LER
 # ---------------------------------------------------------------------------
 
+def _reset_published_assay_fields():
+    """Seçili makale değişince assay forma ilgili kaynak bilgisini taşır."""
+    result = st.session_state.get("published_search") or {}
+    papers = result.get("papers") or []
+    if not papers:
+        return
+    try:
+        idx = int(st.session_state.get("pub_selected", 0))
+    except Exception:
+        idx = 0
+    if not (0 <= idx < len(papers)):
+        idx = 0
+        st.session_state["pub_selected"] = 0
+    paper = papers[idx]
+    source = " ".join(x for x in [
+        paper.get("title") or "",
+        paper.get("venue") or "",
+        str(paper.get("year") or ""),
+        (f"DOI:{paper['doi']}" if paper.get("doi") else ""),
+    ] if x)
+    st.session_state["pub_assay_name"] = (paper.get("title") or "")[:180]
+    st.session_state["pub_assay_source"] = source
+    st.session_state["pub_f"] = ""
+    st.session_state["pub_r"] = ""
+    st.session_state["pub_p"] = ""
+    st.session_state["pub_notes"] = ""
+    st.session_state["published_extraction"] = None
+    st.session_state["published_last"] = None
+
+
+def _run_published_search():
+    """Makale arama callback'i; sonuç ve form alanları atomik güncellenir."""
+    query = st.session_state.get("pub_query", "")
+    limit = st.session_state.get("pub_limit", 25)
+    min_cites = st.session_state.get("pub_min_cites", 0)
+    result = search_published_papers(
+        query,
+        limit=int(limit),
+        min_citations=int(min_cites),
+    )
+    st.session_state["published_search"] = result
+    st.session_state["pub_selected"] = 0
+    _reset_published_assay_fields()
+
+
+def _fill_extracted_candidates():
+    """Otomatik çıkarılan ilk Forward/Reverse/Prob adayını forma yazar."""
+    extraction = st.session_state.get("published_extraction") or {}
+    candidates = extraction.get("candidates") or []
+    by_role = {}
+    for c in candidates:
+        role = c.get("role")
+        if role in ("forward", "reverse", "prob") and role not in by_role:
+            by_role[role] = c.get("sequence", "")
+    st.session_state["pub_f"] = by_role.get("forward", "")
+    st.session_state["pub_r"] = by_role.get("reverse", "")
+    st.session_state["pub_p"] = by_role.get("prob", "")
+    extracted = "\n".join(f"{role} adayı: {seq}" for role, seq in by_role.items() if seq)
+    if extracted:
+        current = st.session_state.get("pub_notes", "") or ""
+        st.session_state["pub_notes"] = (current + "\n\n" + extracted).strip()
+
+
 def render_published_tabs(ctx):
     """Makale bibliyografisi arama + yayınlanmış diziyi kütüphaneye aktarır."""
     active = ctx["active_or_demo"]("published")
@@ -1274,9 +1338,10 @@ def render_published_tabs(ctx):
     _active_header(active)
     st.markdown("#### 📄 Yayınlanmış makalelerden assay bul")
     st.caption(
-        "Makale arama Semantic Scholar/Crossref üzerinden yalnızca bibliyografik bilgi "
-        "döndürür; atıf sayısına göre sıralar. Primer/prob dizileri makale tablosundan "
-        "kopyalanmalı; sistem yayınlanmış dizi uydurmaz."
+        "Makale arama Semantic Scholar/Crossref üzerinden atıf sayısına göre sıralar. "
+        "Erişilebilir tam metin varsa uygulama olası primer/prob dizilerini otomatik "
+        "aday olarak çıkarır; sistem yayınlanmış dizi uydurmaz. Adaylar onaylanmadan "
+        "kütüphaneye eklenmez."
     )
     organism = active.get("organism") or active.get("virus") or ""
     default_query = f"{organism} PCR primer probe" if organism else "PCR primer probe"
@@ -1286,14 +1351,10 @@ def render_published_tabs(ctx):
     min_cites = c3.number_input("Min. atıf", min_value=0, value=0, step=1, key="pub_min_cites")
     sort_note = c4.caption("Sıralama: atıf sayısı (yüksekten düşüğe), ardından yıl.")
 
-    if st.button("🔎 Makaleleri ara", type="primary", key="pub_search", width="stretch"):
-        with st.spinner("Yayınlanmış assay makaleleri aranıyor..."):
-            result = search_published_papers(
-                query,
-                limit=int(limit),
-                min_citations=int(min_cites),
-            )
-        st.session_state["published_search"] = result
+    st.button(
+        "🔎 Makaleleri ara", type="primary", key="pub_search",
+        width="stretch", on_click=_run_published_search,
+    )
 
     result = st.session_state.get("published_search") or {"papers": []}
     papers = result.get("papers") or []
@@ -1324,6 +1385,7 @@ def render_published_tabs(ctx):
             range(len(papers)),
             format_func=lambda i: f"{papers[i].get('title', '')[:130]} · {papers[i].get('year') or '—'} · {papers[i].get('citation_count', 0)} atıf",
             key="pub_selected",
+            on_change=_reset_published_assay_fields,
         )
         paper = papers[int(selected_idx)]
         with st.expander("Seçili makale özeti"):
@@ -1338,11 +1400,50 @@ def render_published_tabs(ctx):
             if paper.get("abstract"):
                 st.write(paper["abstract"][:1200])
 
+        st.markdown("#### Makaleden otomatik aday dizileri")
+        if st.button("🧬 Erişilebilir tam metinden aday dizileri çıkar",
+                     key="pub_extract", width="stretch"):
+            with st.spinner("Açık erişim tam metni çekiliyor ve taranıyor..."):
+                extraction = extract_published_assay_candidates(
+                    pdf_url=paper.get("pdf_url", ""),
+                    doi=paper.get("doi", ""),
+                    pmid=paper.get("pmid", ""),
+                )
+            st.session_state["published_extraction"] = extraction
+
+        extraction = st.session_state.get("published_extraction") or {}
+        if extraction:
+            if extraction.get("candidates"):
+                st.success(
+                    f"{len(extraction['candidates'])} aday dizi çıkarıldı "
+                    f"({extraction.get('source') or 'kaynak belirtilmedi'})."
+                )
+                rows = [{
+                    "Önerilen rol": c.get("role", "aday"),
+                    "Dizi": c.get("sequence", ""),
+                    "Güven skoru": c.get("score", 0),
+                    "Bağlam": c.get("context", "")[:320],
+                } for c in extraction["candidates"]]
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+                st.button(
+                    "🧾 Adayları form alanlarına doldur",
+                    key="pub_fill_extracted", width="stretch",
+                    on_click=_fill_extracted_candidates,
+                )
+            else:
+                st.warning(
+                    "Tam metinde çıkarılabilir primer/prob dizisi bulunamadı. "
+                    "Makale kit/protokol kullandıysa diziler kapalı olabilir; makaledeki "
+                    "tabloyu manuel olarak kopyalayın."
+                )
+            if extraction.get("notes"):
+                st.caption(" · ".join(extraction["notes"]))
+
         st.markdown("#### Seçili makaleden assay aktar")
         st.caption(
-            "Diziyi makaledeki tablodan kopyalayın. Uygulama diziyi referans üzerinde "
-            "konumlandırır ve aktif assay ile karşılaştırır; yayınlanmış olduğu iddiasını "
-            "kendi başına doğrulamaz."
+            "Otomatik adayları inceleyin veya makaledeki tablodan diziyi manuel olarak "
+            "kopyalayın. Uygulama diziyi referans üzerinde konumlandırır ve aktif assay "
+            "ile karşılaştırır; yayınlanmış olduğu iddiasını kendi başına doğrulamaz."
         )
         source_default = " ".join(x for x in [
             paper.get("title") or "",

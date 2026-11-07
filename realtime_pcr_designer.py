@@ -1464,8 +1464,9 @@ SantaLucia nearest-neighbour modeli (Biopython `MeltingTemp.Tm_NN`), qPCR koşul
 - **Kütüphane:** yayınlanmış assay'ler yapıştırılıp referansta konumlandırılır; aktif assay ile
   uyum skoru hesaplanır. Kütüphaneye hazır/doğrulanmamış sekans gömülmez.
 - **Yayınlanmış Assay'ler:** Semantic Scholar/Crossref ile makale bibliyografisini atıf sayısına
-  göre sıralar; makaledeki primer/prob dizileri kullanıcı tarafından aktarılıp referans üzerinde
-  konumlandırılır ve kütüphaneye eklenir. Sistem yayınlanmış dizi uydurmaz.
+  göre sıralar; erişilebilir tam metin varsa olası primer/prob dizileri otomatik aday olarak
+  çıkarılır. Onaylanan diziler referans üzerinde konumlandırılır ve kütüphaneye eklenir.
+  Sistem yayınlanmış dizi uydurmaz.
 - **Genome Track:** Plotly tabanlı gen, primer/prob, korunmuşluk ve mismatch yoğunluğu izi.
 - **Consensus / dejenere primer:** IUPAC dejenere primerler; kapsama ve dejenere kat sayısı.
 - **SNP ayrımı:** mutant primerin 3' ucu SNP bazına denk gelir; WT kontrol primerı ile karşılaştırılır.

@@ -10,7 +10,9 @@ uydurmamak icin ornek sekanslar gomulmez.
 
 from __future__ import annotations
 
+import io
 import json
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -126,7 +128,7 @@ def search_published_papers(query: str, limit: int = 25, min_citations: int = 0,
         params = {
             "query.bibliographic": query,
             "rows": max(limit * 2, limit),
-            "select": "title,author,container-title,published,DOI,URL,is-referenced-by-count,abstract,publisher",
+            "select": "title,author,container-title,published,DOI,URL,is-referenced-by-count,abstract,publisher,link,resource",
         }
         resp = requests.get(
             "https://api.crossref.org/works",
@@ -154,6 +156,15 @@ def search_published_papers(query: str, limit: int = 25, min_citations: int = 0,
                 " ".join(str(a.get(k, "")).strip() for k in ("given", "family") if a.get(k))
                 for a in (item.get("author") or [])
             ).strip()[:240]
+            pdf_url = ""
+            for link in item.get("link") or []:
+                try:
+                    url = str((link or {}).get("URL") or "").strip()
+                    if url and (url.lower().endswith(".pdf") or "/pdf" in url.lower()):
+                        pdf_url = url
+                        break
+                except Exception:
+                    continue
             papers.append({
                 "title": title.strip(),
                 "authors": authors,
@@ -162,7 +173,7 @@ def search_published_papers(query: str, limit: int = 25, min_citations: int = 0,
                 "doi": str(item.get("DOI") or "").strip(),
                 "pmid": "",
                 "url": str(item.get("URL") or "").strip(),
-                "pdf_url": "",
+                "pdf_url": pdf_url,
                 "citation_count": cites,
                 "source": "Crossref",
                 "abstract": str(item.get("abstract") or "").strip(),
@@ -184,6 +195,131 @@ def search_published_papers(query: str, limit: int = 25, min_citations: int = 0,
             "error": f"Semantic Scholar: {semantic_error}; Crossref: {crossref_exc}",
             "source": "",
         }
+
+
+def _extract_sequence_candidates_from_text(text: str):
+    """Tam metinden primer/prob adayı dizileri bulur (pozisyon bağlamı ile)."""
+    if not text:
+        return []
+    # PDF satır kırılmaları/boşluklar oligo'yu bölebilir; önce metni normalize et.
+    compact = re.sub(r"([ACGTacgtryskmbdhvn])\s+([ACGTacgtryskmbdhvn])",
+                     lambda m: m.group(1) + m.group(2), text)
+    pattern = re.compile(r"\b([ACGTRYSWKMBDHVN]{15,35})\b", re.IGNORECASE)
+    seen = []
+    out = []
+    for m in pattern.finditer(compact):
+        seq = m.group(1).upper()
+        # İngilizce metinde ACGT-benzeri sahte pozitifleri ele.
+        if set(seq) <= set("ACGT") and len(seq) < 16:
+            continue
+        if len(set(seq)) < 3:
+            continue
+        ctx0 = max(0, m.start() - 240)
+        ctx1 = min(len(compact), m.end() + 240)
+        context = re.sub(r"\s+", " ", compact[ctx0:ctx1]).strip()
+        low = context.lower()
+        score = 0
+        if "forward" in low or "forward primer" in low or "f primer" in low or "5'" in low or "5’" in low:
+            score += 3
+        if "reverse" in low or "reverse primer" in low or "r primer" in low or "3'" in low or "3’" in low:
+            score += 3
+        if "probe" in low or "taqman" in low or "hybridization" in low:
+            score += 4
+        if "primer" in low or "oligonucleotide" in low:
+            score += 2
+        if "table" in low or "sequence" in low:
+            score += 1
+        if score <= 0:
+            continue
+        role = "aday"
+        if "probe" in low or "taqman" in low:
+            role = "prob"
+        elif "reverse" in low:
+            role = "reverse"
+        elif "forward" in low:
+            role = "forward"
+        if (seq, context) not in seen:
+            seen.append((seq, context))
+            out.append({
+                "sequence": seq,
+                "role": role,
+                "score": score,
+                "context": context[:420],
+            })
+    return sorted(out, key=lambda x: (-x["score"], len(x["sequence"])))
+
+
+def extract_published_assay_candidates(pdf_url: str = "", doi: str = "", pmid: str = "",
+                                       max_candidates: int = 30):
+    """Açık erişim tam metinden primer/prob adayı dizileri çıkarır.
+
+    Yalnızca erişilebilir PDF veya Europe PMC tam metni kullanılmalıdır. Dizi uydurulmaz;
+    benzergah/rol sınıflandırması zayıfsa 'aday' olarak döner ve kullanıcı onaylar.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/pdf,*/*;q=0.8",
+    }
+    text = ""
+    source = ""
+    notes = []
+
+    if pdf_url:
+        try:
+            resp = requests.get(str(pdf_url), headers=headers, timeout=45)
+            resp.raise_for_status()
+            ctype = (resp.headers.get("content-type") or "").lower()
+            if "pdf" in ctype or resp.content[:4] == b"%PDF":
+                from pypdf import PdfReader
+
+                reader = PdfReader(io.BytesIO(resp.content))
+                parts = []
+                for page in reader.pages:
+                    try:
+                        parts.append(page.extract_text() or "")
+                    except Exception:
+                        continue
+                text = "\n".join(parts)
+                source = str(pdf_url)
+            else:
+                notes.append("PDF bağlantısı HTML döndürdü.")
+        except Exception as exc:
+            notes.append(f"PDF okunamadı: {exc}")
+
+    if not text and (doi or pmid):
+        try:
+            q = f'DOI:"{doi}"' if doi else f'EXT_ID:{pmid}'
+            resp = requests.get(
+                "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+                params={"query": q, "format": "json", "resultType": "core", "pageSize": 1},
+                headers={"User-Agent": "PCR-Primer-Probe/1.0"},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            results = (resp.json().get("resultList") or {}).get("result") or []
+            pmcid = results[0].get("pmcid") if results else ""
+            if pmcid:
+                full = requests.get(
+                    f"https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML",
+                    headers={"User-Agent": "PCR-Primer-Probe/1.0"},
+                    timeout=45,
+                )
+                full.raise_for_status()
+                text = full.text
+                source = f"Europe PMC {pmcid}"
+            else:
+                notes.append("Europe PMC'de tam metin (PMCID) bulunamadı.")
+        except Exception as exc:
+            notes.append(f"Europe PMC tam metni alınamadı: {exc}")
+
+    candidates = _extract_sequence_candidates_from_text(text) if text else []
+    return {
+        "ok": bool(candidates),
+        "candidates": candidates[:max_candidates],
+        "source": source,
+        "n_chars": len(text),
+        "notes": notes,
+    }
 
 
 def locate_assay(ref_seq: str, forward: str, reverse: str, probe: str | None = None,
