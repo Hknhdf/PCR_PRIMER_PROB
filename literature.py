@@ -14,6 +14,7 @@ import json
 from datetime import datetime
 
 import pandas as pd
+import requests
 from Bio import Align
 
 from pcr_engine import calculate_gc_content, calculate_tm, revcomp
@@ -50,6 +51,139 @@ def global_identity(a: str, b: str):
         if x == y:
             matches += 1
     return round(100.0 * matches / compared, 1) if compared else 0.0
+
+
+def search_published_papers(query: str, limit: int = 25, min_citations: int = 0,
+                            year_from: int | None = None, year_to: int | None = None):
+    """Yayınlanmış makaleleri arar ve atıf sayısına göre sıralar.
+
+    Önemli: bu fonksiyon yalnızca bibliyografik metadata döndürür. Makalelerdeki
+    primer/prob dizileri ayrı bir veritabanından uydurulamaz; diziler kullanıcı
+    tarafından makale tablosundan kopyalanmalıdır. Atıf sayısı Semantic Scholar
+    üzerinden, yedek olarak Crossref üzerinden alınır.
+    """
+    query = str(query or "").strip()
+    if not query:
+        return {"ok": False, "papers": [], "error": "Arama terimi boş.", "source": ""}
+    limit = max(1, min(int(limit or 25), 100))
+    headers = {"User-Agent": "PCR-Primer-Probe/1.0 (in-silico assay literatur arama)"}
+
+    # 1) Semantic Scholar: citationCount + DOI/PMID + açık erişim bağlantısı.
+    try:
+        params = {
+            "query": query,
+            "limit": limit,
+            "fields": "title,authors,year,venue,externalIds,url,citationCount,openAccessPdf,abstract",
+        }
+        resp = requests.get(
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            params=params, headers=headers, timeout=30,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        papers = []
+        for item in payload.get("data", []) or []:
+            cites = int(item.get("citationCount") or 0)
+            if cites < int(min_citations or 0):
+                continue
+            try:
+                year = int(item.get("year")) if item.get("year") else None
+            except Exception:
+                year = None
+            if year_from and isinstance(year, int) and year < int(year_from):
+                continue
+            if year_to and isinstance(year, int) and year > int(year_to):
+                continue
+            external = item.get("externalIds") or {}
+            authors = ", ".join(
+                str(a.get("name", "")).strip()
+                for a in (item.get("authors") or [])
+                if a.get("name")
+            )[:240]
+            pdf = item.get("openAccessPdf") or {}
+            papers.append({
+                "title": str(item.get("title") or "").strip(),
+                "authors": authors,
+                "year": year,
+                "venue": str(item.get("venue") or "").strip(),
+                "doi": str(external.get("DOI") or "").strip(),
+                "pmid": str(external.get("PubMed") or "").strip(),
+                "url": str(item.get("url") or "").strip(),
+                "pdf_url": str(pdf.get("url") or "").strip(),
+                "citation_count": cites,
+                "source": "Semantic Scholar",
+                "abstract": str(item.get("abstract") or "").strip(),
+            })
+        papers.sort(key=lambda p: (-int(p.get("citation_count") or 0), -(p.get("year") or 0)))
+        if papers:
+            return {"ok": True, "papers": papers[:limit], "source": "Semantic Scholar", "error": ""}
+        return {"ok": False, "papers": [], "error": "Sonuç bulunamadı.", "source": "Semantic Scholar"}
+    except Exception as semantic_exc:
+        semantic_error = str(semantic_exc)
+
+    # 2) Crossref yedeği: is-referenced-by-count atıf sayımı verir.
+    try:
+        params = {
+            "query.bibliographic": query,
+            "rows": max(limit * 2, limit),
+            "select": "title,author,container-title,published,DOI,URL,is-referenced-by-count,abstract,publisher",
+        }
+        resp = requests.get(
+            "https://api.crossref.org/works",
+            params=params, headers=headers, timeout=30,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        papers = []
+        for item in (payload.get("message") or {}).get("items", []) or []:
+            cites = int(item.get("is-referenced-by-count") or 0)
+            if cites < int(min_citations or 0):
+                continue
+            published = item.get("published") or item.get("issued") or {}
+            year = None
+            try:
+                year = int((published.get("date-parts") or [[None]])[0][0])
+            except Exception:
+                year = None
+            if year_from and isinstance(year, int) and year < int(year_from):
+                continue
+            if year_to and isinstance(year, int) and year > int(year_to):
+                continue
+            title = " ".join(str(x) for x in (item.get("title") or []))
+            authors = ", ".join(
+                " ".join(str(a.get(k, "")).strip() for k in ("given", "family") if a.get(k))
+                for a in (item.get("author") or [])
+            ).strip()[:240]
+            papers.append({
+                "title": title.strip(),
+                "authors": authors,
+                "year": year,
+                "venue": " ".join(str(x) for x in (item.get("container-title") or [])),
+                "doi": str(item.get("DOI") or "").strip(),
+                "pmid": "",
+                "url": str(item.get("URL") or "").strip(),
+                "pdf_url": "",
+                "citation_count": cites,
+                "source": "Crossref",
+                "abstract": str(item.get("abstract") or "").strip(),
+            })
+        papers = [p for p in papers if p.get("title")]
+        papers.sort(key=lambda p: (-int(p.get("citation_count") or 0), -(p.get("year") or 0)))
+        if papers:
+            return {"ok": True, "papers": papers[:limit], "source": "Crossref", "error": ""}
+        return {
+            "ok": False,
+            "papers": [],
+            "error": f"Semantic Scholar: {semantic_error}; Crossref: sonuç yok.",
+            "source": "Crossref",
+        }
+    except Exception as crossref_exc:
+        return {
+            "ok": False,
+            "papers": [],
+            "error": f"Semantic Scholar: {semantic_error}; Crossref: {crossref_exc}",
+            "source": "",
+        }
 
 
 def locate_assay(ref_seq: str, forward: str, reverse: str, probe: str | None = None,

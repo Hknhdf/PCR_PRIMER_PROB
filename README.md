@@ -24,6 +24,7 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 - **LOD / LOQ** — Poisson + verim + Ct gürültüsü Monte Carlo, probit MLE/bootstrap, standart eğri, PPV/NPV, örneklem büyüklüğü
 - **PDF assay kartı** — termodinamik, kapsama, özgüllük ve LOD/LOQ özeti
 - **Literatür / assay karşılaştırma** — yayınlanmış primerleri referansta konumlandırma, aktif assay ile uyum skoru, JSON kütüphanesi
+- **Yayınlanmış Assay'ler** — Semantic Scholar/Crossref üzerinden makale bibliyografisi arama; sonuçlar atıf sayısına göre sıralanır. Makaledeki primer/prob dizileri aktarılıp referans üzerinde konumlandırılır ve kütüphaneye eklenir; sistem yayınlanmış dizi uydurmaz.
 - **Consensus / dejenere primer** — IUPAC dejenere primerler, kapsama ve dejenere kat sayısı
 - **SNP ayrımı** — 3' uç SNP primerleri + WT kontrol primerı
 - **RPA / LAMP (beta)** — RPA primer/prob ve LAMP F3/B3/FIP/BIP önerileri, LAMP set kontrolü

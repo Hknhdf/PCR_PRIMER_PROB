@@ -52,6 +52,10 @@ Streamlit uygulaması. Hazır katalog: **11 virüs, 28 bakteri, 11 parazit (50 e
   - **Literatür / Assay Karşılaştırma:** yayınlanmış primerleri referansta konumlandırma,
     aktif assay ile uyum skoru, JSON kütüphanesi; doğrulanmamış hazır dizi gömülmez
   - **Genome Track:** Plotly tabanlı gen/primer/korunmuşluk/mismatch izleyicisi
+- **📄 Yayınlanmış Assay'ler**
+  - Semantic Scholar/Crossref ile makale bibliyografisini atıf sayısına göre sıralar; makaledeki
+    primer/prob dizileri kullanıcı tarafından aktarılır, referans üzerinde konumlandırılır ve
+    assay kütüphanesine eklenir. Sistem yayınlanmış dizi uydurmaz.
 - **🚀 İleri**
   - **Consensus / Dejenere:** IUPAC dejenere primerler, kapsama ve dejenere kat sayısı
   - **SNP Ayrımı:** 3' uç SNP primerleri + WT kontrol primerı
@@ -155,6 +159,7 @@ ileri iplikte ters komplement olarak bulunur; ileri iplikte aranan dizi ters kom
 | CCHFV referans eşleşmesi | `NC_005302.1`: F 1101–1119, R bağlanma bölgesi 1227–1245, prob 1176–1199; amplikon 1101–1245, 145 bp, 0 mismatch |
 | 5 öncelikli etken referans eşleşmesi | F/Prob ileri iplikte tam eşleşme; reverse primer ters komplementi tam eşleşme |
 | Arayüz | Referans bağlanma haritası + Google/Primer-BLAST doğrulama notu eklendi |
+| Yayınlanmış Assay'ler sekmesi | Semantic Scholar/Crossref arama 25 sonuç döndürdü; atıf sayısına göre sıralama çalıştı; AppTest 0 istisna |
 
 ## Kalan / isteğe bağlı işler
 

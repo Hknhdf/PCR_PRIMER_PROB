@@ -85,6 +85,7 @@ from v3_ui import (
     render_analysis_tabs,
     render_library_tabs,
     render_order_tabs,
+    render_published_tabs,
 )
 
 # --- 1. AYARLAR ---
@@ -407,7 +408,8 @@ def store_active_assay(virus, info, seq_str, start, end, result, accession,
     st.session_state["active_assay"] = active
     for _k in ("last_genotype", "last_specificity", "last_lod", "last_turkey",
                "last_turkey_subjects", "last_turkey_consensus", "last_order_gate",
-               "lit_last", "consensus_last", "snp_last", "rpa_last", "lamp_last",
+               "lit_last", "published_search", "published_last", "consensus_last",
+               "snp_last", "rpa_last", "lamp_last",
                "blast_last", "thermo_unc"):
         st.session_state[_k] = None
     # Yeni assay'da önceki sipariş teyitleri taşınmamalı.
@@ -838,13 +840,14 @@ _ctx = {
     "min_cons": min_cons,
 }
 
-tab_single, tab_panel, tab_analysis, tab_order, tab_library, tab_advanced, tab_docs = st.tabs(
+tab_single, tab_panel, tab_analysis, tab_order, tab_library, tab_published, tab_advanced, tab_docs = st.tabs(
     [
         "🧬 Tek Etken Tasarımı",
         "🧩 Multiplex Panel",
         "📊 Analiz",
         "🛡️ Sipariş Kontrolü",
         "📚 Kütüphane",
+        "📄 Yayınlanmış Assay'ler",
         "🚀 İleri",
         "ℹ️ Yöntem ve Notlar",
     ]
@@ -1400,6 +1403,9 @@ with tab_order:
 with tab_library:
     render_library_tabs(_ctx)
 
+with tab_published:
+    render_published_tabs(_ctx)
+
 with tab_advanced:
     render_advanced_tabs(_ctx)
 
@@ -1457,6 +1463,9 @@ SantaLucia nearest-neighbour modeli (Biopython `MeltingTemp.Tm_NN`), qPCR koşul
 - **PDF raporu:** mevcut oturumdaki termodinamik, kapsama, özgüllük ve LOD/LOQ özetlerini birleştirir.
 - **Kütüphane:** yayınlanmış assay'ler yapıştırılıp referansta konumlandırılır; aktif assay ile
   uyum skoru hesaplanır. Kütüphaneye hazır/doğrulanmamış sekans gömülmez.
+- **Yayınlanmış Assay'ler:** Semantic Scholar/Crossref ile makale bibliyografisini atıf sayısına
+  göre sıralar; makaledeki primer/prob dizileri kullanıcı tarafından aktarılıp referans üzerinde
+  konumlandırılır ve kütüphaneye eklenir. Sistem yayınlanmış dizi uydurmaz.
 - **Genome Track:** Plotly tabanlı gen, primer/prob, korunmuşluk ve mismatch yoğunluğu izi.
 - **Consensus / dejenere primer:** IUPAC dejenere primerler; kapsama ve dejenere kat sayısı.
 - **SNP ayrımı:** mutant primerin 3' ucu SNP bazına denk gelir; WT kontrol primerı ile karşılaştırılır.

@@ -38,6 +38,7 @@ from literature import (
     library_from_json,
     library_to_json,
     locate_assay,
+    search_published_papers,
     validate_entry,
 )
 from panel_opt import (
@@ -1257,6 +1258,171 @@ def _render_order_gate(ctx):
         with st.expander("Siparişi bloke eden maddeler"):
             for item in gate["blocking"]:
                 st.write("• " + item)
+
+
+# ---------------------------------------------------------------------------
+# YAYINLANMIŞ ASSAY'LER
+# ---------------------------------------------------------------------------
+
+def render_published_tabs(ctx):
+    """Makale bibliyografisi arama + yayınlanmış diziyi kütüphaneye aktarır."""
+    active = ctx["active_or_demo"]("published")
+    if not active:
+        return
+    _active_header(active)
+    st.markdown("#### 📄 Yayınlanmış makalelerden assay bul")
+    st.caption(
+        "Makale arama Semantic Scholar/Crossref üzerinden yalnızca bibliyografik bilgi "
+        "döndürür; atıf sayısına göre sıralar. Primer/prob dizileri makale tablosundan "
+        "kopyalanmalı; sistem yayınlanmış dizi uydurmaz."
+    )
+    organism = active.get("organism") or active.get("virus") or ""
+    default_query = f"{organism} PCR primer probe" if organism else "PCR primer probe"
+    c1, c2, c3, c4 = st.columns(4)
+    query = c1.text_input("Arama terimi", value=default_query, key="pub_query")
+    limit = c2.slider("Sonuç sayısı", 5, 50, 25, 5, key="pub_limit")
+    min_cites = c3.number_input("Min. atıf", min_value=0, value=0, step=1, key="pub_min_cites")
+    sort_note = c4.caption("Sıralama: atıf sayısı (yüksekten düşüğe), ardından yıl.")
+
+    if st.button("🔎 Makaleleri ara", type="primary", key="pub_search", width="stretch"):
+        with st.spinner("Yayınlanmış assay makaleleri aranıyor..."):
+            result = search_published_papers(
+                query,
+                limit=int(limit),
+                min_citations=int(min_cites),
+            )
+        st.session_state["published_search"] = result
+
+    result = st.session_state.get("published_search") or {"papers": []}
+    papers = result.get("papers") or []
+    if result.get("error") and not papers:
+        st.warning(result.get("error"))
+
+    if papers:
+        st.success(f"{len(papers)} makale bulundu · kaynak: {result.get('source', '—')}")
+        rows = []
+        for p in papers:
+            rows.append({
+                "Başlık": p.get("title", ""),
+                "Yıl": str(p.get("year")) if p.get("year") else "—",
+                "Dergi": p.get("venue") or "—",
+                "Atıf": int(p.get("citation_count") or 0),
+                "DOI": p.get("doi") or "—",
+                "Makale": p.get("url") or "—",
+                "Açık erişim PDF": p.get("pdf_url") or "—",
+            })
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.caption(
+            "Atıf sayısı Semantic Scholar/Crossref verisine göre değişebilir; "
+            "sonuçlar bibliyografik ön seçimdir, primer özgüllük kanıtı değildir."
+        )
+
+        selected_idx = st.selectbox(
+            "Seçili makale",
+            range(len(papers)),
+            format_func=lambda i: f"{papers[i].get('title', '')[:130]} · {papers[i].get('year') or '—'} · {papers[i].get('citation_count', 0)} atıf",
+            key="pub_selected",
+        )
+        paper = papers[int(selected_idx)]
+        with st.expander("Seçili makale özeti"):
+            st.write(f"**Yazarlar:** {paper.get('authors') or '—'}")
+            st.write(f"**Kaynak:** {paper.get('source') or '—'}")
+            st.write(f"**Atıf:** {paper.get('citation_count', 0)} · **Yıl:** {paper.get('year') or '—'}")
+            st.write(f"**DOI:** {paper.get('doi') or '—'} · **PMID:** {paper.get('pmid') or '—'}")
+            if paper.get("url"):
+                st.write(f"**Bağlantı:** {paper['url']}")
+            if paper.get("pdf_url"):
+                st.write(f"**Açık erişim PDF:** {paper['pdf_url']}")
+            if paper.get("abstract"):
+                st.write(paper["abstract"][:1200])
+
+        st.markdown("#### Seçili makaleden assay aktar")
+        st.caption(
+            "Diziyi makaledeki tablodan kopyalayın. Uygulama diziyi referans üzerinde "
+            "konumlandırır ve aktif assay ile karşılaştırır; yayınlanmış olduğu iddiasını "
+            "kendi başına doğrulamaz."
+        )
+        source_default = " ".join(x for x in [
+            paper.get("title") or "",
+            paper.get("venue") or "",
+            str(paper.get("year") or ""),
+            (f"DOI:{paper['doi']}" if paper.get("doi") else ""),
+        ] if x)
+        assay_name = st.text_input(
+            "Assay adı", value=(paper.get("title") or "")[:120],
+            key="pub_assay_name", max_chars=180,
+        )
+        assay_source = st.text_input("Kaynak", value=source_default, key="pub_assay_source")
+        fwd = st.text_input("Makaledeki Forward primer (5'→3')", key="pub_f")
+        rev = st.text_input("Makaledeki Reverse primer (5'→3')", key="pub_r")
+        prb = st.text_input("Makaledeki Prob (5'→3', opsiyonel)", key="pub_p")
+        notes = st.text_area("Not", height=60, key="pub_notes")
+
+        if st.button("📍 Konumlandır ve kütüphaneye ekle", type="primary",
+                     key="pub_add", width="stretch"):
+            if not (fwd.strip() and rev.strip()):
+                st.error("Forward ve reverse primer zorunlu.")
+            else:
+                with st.spinner("Yayınlanmış assay referans üzerinde konumlandırılıyor..."):
+                    loc = locate_assay(
+                        active["ref_seq"], fwd.strip(), rev.strip(), prb.strip() or None,
+                        max_mismatches=4, min_amp=30, max_amp=2000,
+                    )
+                if not loc.get("found"):
+                    st.error(loc.get("message", "Assay konumlandırılamadı."))
+                else:
+                    best = loc["best"]
+                    cmp = compare_assays(
+                        {
+                            "forward": active["forward"], "reverse": active["reverse"],
+                            "probe": active.get("probe", ""),
+                            "amplicon_start": active["amplicon_start"],
+                            "amplicon_end": active["amplicon_end"],
+                            "amplicon": active["amplicon"],
+                        },
+                        best,
+                    )
+                    entry = library_entry(
+                        assay_name or f"Yayınlanmış assay {len(st.session_state.get('assay_library', [])) + 1}",
+                        active.get("accession", ""),
+                        fwd.strip(), rev.strip(), prb.strip(),
+                        notes=notes, source=assay_source,
+                    )
+                    ok, msg = validate_entry(entry)
+                    existing = {
+                        (e.get("name"), e.get("forward"), e.get("reverse"))
+                        for e in st.session_state.get("assay_library", [])
+                    }
+                    key = (entry["name"], entry["forward"], entry["reverse"])
+                    if not ok:
+                        st.error(msg)
+                    elif key in existing:
+                        st.info("Bu assay zaten kütüphanede.")
+                    else:
+                        st.session_state.setdefault("assay_library", []).append(entry)
+                        st.session_state["published_last"] = {
+                            "paper": paper, "loc": loc, "compare": cmp,
+                        }
+                        st.success("Kütüphaneye eklendi.")
+                        st.rerun()
+
+        published_last = st.session_state.get("published_last") or {}
+        if published_last.get("loc"):
+            best = published_last["loc"]["best"]
+            st.markdown("#### Konumlandırma sonucu")
+            st.dataframe(pd.DataFrame([{
+                "Amplikon başlangıç": best["amplicon_start_1based"] + active.get("ref_offset", 0),
+                "Amplikon bitiş": best["amplicon_end_1based"] + active.get("ref_offset", 0),
+                "Boyut (bp)": best["size"],
+                "Toplam mismatch": best["total_mismatches"],
+                "Prob var": "evet" if best.get("probe") else "hayır",
+            }]), width="stretch", hide_index=True)
+            cmp = published_last.get("compare") or {}
+            if cmp.get("ok"):
+                st.metric("Aktif assay ile uyum skoru", f"{cmp.get('concordance_score')}/100")
+                st.dataframe(comparison_table(cmp), width="stretch", hide_index=True)
+    else:
+        st.info("Arama terimini girip butona basın. Aktif assay referansı konumlandırma için kullanılır.")
 
 
 # ---------------------------------------------------------------------------
