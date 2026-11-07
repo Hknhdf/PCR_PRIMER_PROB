@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from Bio import Align
 
+from browser_track import navy_template
 from conservation import fetch_related_sequences
 from pcr_engine import revcomp
 from specificity import BindingSite, in_silico_pcr, find_binding_sites
@@ -504,7 +505,7 @@ def heatmap_figure(result: dict, max_rows: int = 80):
     fig.update_layout(
         height=height, margin=dict(l=20, r=20, t=50, b=40),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0.01),
-        template="plotly_white",
+        template=navy_template(),
     )
     return fig
 
@@ -531,12 +532,12 @@ def coverage_figure(result: dict):
     for c in coverages:
         fig.add_annotation(
             x=c.n_evaluable, y=c.name, text=f"değerlendirilebilir {c.n_evaluable}/{c.n_total}",
-            showarrow=False, xanchor="left", xshift=5, font=dict(size=9, color="#555"),
+            showarrow=False, xanchor="left", xshift=5, font=dict(size=9, color="#E6EDF7"),
         )
     fig.update_layout(
         barmode="stack", height=250, margin=dict(l=10, r=10, t=30, b=30),
         xaxis_title="Dizi sayısı", yaxis_title="", legend=dict(orientation="h", y=1.12),
-        template="plotly_white",
+        template=navy_template(),
     )
     return fig
 
@@ -569,10 +570,12 @@ def logo_figure(result: dict, max_bases: int = 180):
     try:
         info = logomaker.transform_matrix(df, from_type="probability", to_type="information")
         fig, ax = plt.subplots(figsize=(max(6, len(df) / 12), 1.9))
+        fig.patch.set_facecolor("#0B1526")
+        ax.set_facecolor("#0B1526")
         logomaker.Logo(info, ax=ax, color_scheme="classic", vpad=0.02)
-        ax.set_xlabel("Amplikon pozisyonu (bp)", fontsize=8)
-        ax.set_ylabel("Bilgi (bit)", fontsize=8)
-        ax.tick_params(labelsize=7)
+        ax.set_xlabel("Amplikon pozisyonu (bp)", fontsize=8, color="#E6EDF7")
+        ax.set_ylabel("Bilgi (bit)", fontsize=8, color="#E6EDF7")
+        ax.tick_params(labelsize=7, colors="#E6EDF7")
         fig.tight_layout()
         return fig
     except Exception:

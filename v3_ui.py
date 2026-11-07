@@ -23,7 +23,7 @@ from advanced_design import (
     design_rpa,
     design_snp_primers,
 )
-from browser_track import build_genome_track
+from browser_track import build_genome_track, navy_template
 from genotype import (
     analyze_genotypes,
     coverage_figure,
@@ -273,6 +273,7 @@ def _render_thermo(ctx):
         height=360, margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", y=1.08),
         title="Termodinamik alt skorları (100 = ideal)",
+        template=navy_template(),
     )
     st.plotly_chart(fig, width="stretch")
 
@@ -287,7 +288,8 @@ def _render_thermo(ctx):
             texttemplate="%{text}", hovertemplate="%{y}–%{x}<br>ΔG %{z:.2f} kcal/mol<extra></extra>",
         ))
         heat.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20),
-                           title="Heterodimer / homodimer ΔG (60 °C)")
+                           title="Heterodimer / homodimer ΔG (60 °C)",
+                           template=navy_template())
         st.plotly_chart(heat, width="stretch")
         if flags:
             st.warning(
@@ -744,7 +746,7 @@ def _render_lod(ctx):
                 fig.add_vline(x=math.log10(result["lod95"]), line_dash="dash",
                               line_color="#2e7d32", annotation_text="LOD95")
         fig.update_layout(
-            height=380, template="plotly_white",
+            height=380, template=navy_template(),
             xaxis_title="log10(kopya)", yaxis_title="Tespit olasılığı",
             yaxis=dict(range=[0, 1.05]), legend=dict(orientation="h", y=1.1),
             margin=dict(l=20, r=20, t=30, b=40),
@@ -770,7 +772,7 @@ def _render_lod(ctx):
                 mode="lines", name="Regresyon", line=dict(color="#c62828", width=2),
             ))
         fig2.update_layout(
-            height=380, template="plotly_white",
+            height=380, template=navy_template(),
             xaxis_title="log10(kopya)", yaxis_title="Ct",
             legend=dict(orientation="h", y=1.1),
             margin=dict(l=20, r=20, t=30, b=40),

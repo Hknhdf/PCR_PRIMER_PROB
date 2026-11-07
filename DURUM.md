@@ -20,6 +20,7 @@ Streamlit uygulaması. Hazır katalog: **11 virüs, 28 bakteri, 11 parazit (50 e
 ## Tamamlanan özellikler
 
 ### v2 temel motoru
+- **Koyu lacivert tema:** Streamlit teması, grafik şablonları ve sequence logo zeminleri koyu lacivert
 - Canlı NCBI erişimi (Biopython Entrez), önbellekli
 - SantaLucia nearest-neighbour Tm (qPCR tuz koşulları)
 - Gerçek amplikon mantığı (forward = sense başlangıç, reverse = amplikon sonunun ters komplementi)

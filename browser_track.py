@@ -10,6 +10,30 @@ Hafif, Plotly tabanli genom izleyici:
 from __future__ import annotations
 
 
+def navy_template() -> str:
+    """Plotly grafiklerini koyu lacivert temayla uyumlu hale getirir."""
+    try:
+        import plotly.io as pio
+
+        if "navy" not in pio.templates:
+            tpl = pio.templates["plotly_dark"]
+            tpl.layout.paper_bgcolor = "#0B1526"
+            tpl.layout.plot_bgcolor = "#0B1526"
+            tpl.layout.font.color = "#E6EDF7"
+            tpl.layout.title.font.color = "#E6EDF7"
+            tpl.layout.legend.font.color = "#E6EDF7"
+            tpl.layout.xaxis.gridcolor = "#2E425E"
+            tpl.layout.yaxis.gridcolor = "#2E425E"
+            tpl.layout.xaxis.tickfont.color = "#E6EDF7"
+            tpl.layout.yaxis.tickfont.color = "#E6EDF7"
+            tpl.layout.xaxis.title.font.color = "#E6EDF7"
+            tpl.layout.yaxis.title.font.color = "#E6EDF7"
+            pio.templates["navy"] = tpl
+    except Exception:
+        return "plotly_dark"
+    return "navy"
+
+
 def build_genome_track(region_start: int, region_end: int, features=None, primers=None,
                        conservation=None, mismatch_density=None, title: str = "",
                        ref_len: int | None = None):
@@ -52,13 +76,13 @@ def build_genome_track(region_start: int, region_end: int, features=None, primer
                           fillcolor=color, opacity=0.45, line=dict(color=color, width=1),
                           row=1, col=1)
             fig.add_annotation(x=(x0 + x1) / 2, y=(y0 + y1) / 2, text=str(f.get("name", ""))[:30],
-                               showarrow=False, font=dict(size=9, color="#263238"), row=1, col=1)
+                               showarrow=False, font=dict(size=9, color="#E6EDF7"), row=1, col=1)
     else:
         fig.add_shape(type="rect", x0=region_start + 1, x1=region_end, y0=0.18, y1=0.52,
                       fillcolor="#cfd8dc", opacity=0.4, line=dict(color="#90a4ae", width=1),
                       row=1, col=1)
         fig.add_annotation(x=(region_start + region_end) / 2, y=0.35, text="Referans bölge",
-                           showarrow=False, font=dict(size=9, color="#455a64"), row=1, col=1)
+                           showarrow=False, font=dict(size=9, color="#D6DEEE"), row=1, col=1)
 
     # Primer / prob
     primers = primers or []
@@ -86,7 +110,7 @@ def build_genome_track(region_start: int, region_end: int, features=None, primer
     else:
         fig.add_annotation(x=(region_start + region_end) / 2, y=50,
                            text="Korunmuşluk verisi yok (çoklu hizalama çalıştırın)",
-                           showarrow=False, font=dict(size=9, color="#757575"), row=2, col=1)
+                           showarrow=False, font=dict(size=9, color="#B0BEC5"), row=2, col=1)
         fig.update_yaxes(range=[0, 100], title_text="%", row=2, col=1)
 
     # Mismatch yogunlugu
@@ -100,14 +124,14 @@ def build_genome_track(region_start: int, region_end: int, features=None, primer
     else:
         fig.add_annotation(x=(region_start + region_end) / 2, y=1,
                            text="Mismatch verisi yok (genotip analizi çalıştırın)",
-                           showarrow=False, font=dict(size=9, color="#757575"), row=3, col=1)
+                           showarrow=False, font=dict(size=9, color="#B0BEC5"), row=3, col=1)
         fig.update_yaxes(range=[0, 2], title_text="sayı", row=3, col=1)
 
     fig.update_xaxes(title_text="Genomik pozisyon (bp)", row=3, col=1)
     fig.update_yaxes(showticklabels=False, range=[0, 1], row=1, col=1)
     fig.update_layout(
         height=560, margin=dict(l=20, r=20, t=45, b=40),
-        template="plotly_white", showlegend=False,
+        template=navy_template(), showlegend=False,
         title=dict(text=title, font=dict(size=13)),
         hovermode="x unified",
     )

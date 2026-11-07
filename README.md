@@ -5,6 +5,7 @@ TaqMan primer/prob setleri tasarlayan Streamlit uygulaması.
 
 ## Özellikler
 
+- **Koyu lacivert tema** — göz yormayacak koyu lacivert zemin ve açık metin
 - **Canlı NCBI erişimi** (Biopython Entrez) — her çalıştırmada güncel diziler
 - **Korunmuşluk analizi** — k-mer ön filtre + global/lokal hizalama, pozisyon bazlı korunmuşluk
 - **TaqMan tasarımı** — SantaLucia nearest-neighbour Tm, dimer/homopolymer kontrolü
